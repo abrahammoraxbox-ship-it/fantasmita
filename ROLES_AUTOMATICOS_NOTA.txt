@@ -1,0 +1,9 @@
+ROLES AUTOMÁTICOS PRO
+- Gamer: se mantiene ligado a la aprobación de acceso.
+- Élite: automático desde 100 mensajes válidos.
+- Veterano: automático desde 500 mensajes válidos.
+- VIP, Creador, Campeón, Guardián y Administrador permanecen manuales para evitar privilegios o reconocimientos incorrectos.
+- Si ya tiene un rol, el panel no lo reasigna; avisa de forma privada.
+- Los roles no se borran/recrean y se conservan los miembros.
+- Discord usa el color del rol más alto para el nombre. No se simulan badges de mensajes con webhooks.
+- Server Tag queda fuera de esta versión, tal como se acordó.

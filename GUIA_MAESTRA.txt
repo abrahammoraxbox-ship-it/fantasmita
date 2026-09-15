@@ -1,0 +1,75 @@
+EL ECO DEL VACÍO — INTEGRADO PRO
+
+BASE
+Esta versión fue construida sobre ONBOARDING_AYUDA_FIX y conserva los arreglos
+ya probados de tickets, salas privadas y recorte seguro.
+
+FLUJO DE ACCESO
+1. Nuevo miembro ve #bienvenida-y-acceso.
+2. Acepta Términos y Condiciones.
+3. Solicita acceso.
+4. SOLO el propietario del servidor puede ACEPTAR o RECHAZAR.
+5. Aprobado recibe 🎮 Gamer. La tarjeta se elimina.
+6. Solicitudes pendientes borradas manualmente se reconcilian al volver a solicitar.
+
+TICKETS
+Botones: Soporte / Reporte / Apelación.
+Un ticket activo por usuario.
+Al cerrar: se genera transcript TXT en #logs y se elimina el canal.
+
+SALAS PRIVADAS
+Entra a ➕ Crear sala privada.
+Panel #control-de-voz:
+- bloquear/desbloquear
+- límite 1–10
+- renombrar
+- permitir usuario por ID
+- expulsar/bloquear usuario por ID
+- transferir propiedad
+Si el dueño sale y quedan personas, la propiedad pasa automáticamente.
+Vacía = se elimina.
+
+MÚSICA
+Comandos:
+ /play busqueda-o-URL
+ /pause /resume /skip /queue /volume /nowplaying /stop
+También hay botones rápidos en #ayuda.
+Usa fuentes públicas compatibles y contenido que tengas derecho a reproducir.
+La resolución de fuentes depende de servicios externos y puede cambiar fuera del control del bot.
+
+PROGRESIÓN
+XP, niveles, Void Coins, daily, rachas, reputación, tienda, inventario,
+misión diaria, misión semanal, logros/medallas y temporada/ranking.
+
+COMUNIDAD COMPETITIVA
+Clanes, LFG, torneos, resultados y calendario de eventos mediante comandos slash.
+No se crean canales permanentes extra: usa la estructura compacta existente.
+
+SEGURIDAD
+Anti-spam, repetición, menciones masivas, patrones básicos de scam,
+detección de ráfaga de entradas (anti-raid) y !panico on/off.
+Backups SQLite rotativos.
+
+BRANDING
+!instalarbranding instala el emoji animado fantasmita si el servidor tiene espacio/permisos.
+Los assets se incluyen en /assets.
+El avatar global del bot NO se cambia automáticamente para evitar afectar todos los servidores.
+
+INTEGRACIONES
+/vincular y /vinculos guardan perfiles públicos de Twitch/YouTube/Facebook.
+NO son OAuth y NO leen cuentas privadas. OAuth/notificaciones reales requieren
+credenciales/API de cada plataforma y no se falsifican en esta versión.
+
+ETIQUETAS DE DISCORD
+No se automatizó una función nativa de Discord llamada "Etiqueta" porque todavía
+no se ha identificado exactamente cuál función de la interfaz querías. No se inventa
+una función distinta bajo ese nombre.
+
+ARRANQUE
+Ejecuta INICIAR_ESTABLE.bat.
+El instalador verifica Python, entorno, dependencias y solo inicia si todo está correcto.
+Mantén activados Server Members Intent y Message Content Intent en Developer Portal.
+
+IMPORTANTE
+No ejecutes dos copias del bot con el mismo token al mismo tiempo.
+No borres el servidor anterior hasta terminar las pruebas del servidor nuevo.

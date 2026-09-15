@@ -1,0 +1,10 @@
+ROLES VISUALES PRO
+- Si un miembro ya tiene el rol, no vuelve a asignarlo y avisa de forma ephemeral.
+- Si intentas quitar un rol que no tiene, avisa de forma ephemeral.
+- Éxito/error de asignación también son privados; no ensucian el canal.
+- Conserva roles y miembros existentes; no borra ni recrea roles.
+- Jerarquía visual: Fundador > Administrador > Guardián > identidades > Gamer > Pendiente.
+- Discord usa el rol de color más alto para colorear el nombre.
+- Los emojis 👑 🛡️ ⚔️ 📺 💎 🏆 🏅 🌙 🎮 ⏳ identifican los roles en su nombre/perfil.
+- Los iconos nativos junto al nombre dependen de las funciones de Role Icons disponibles en Discord; no se simulan borrando/republicando mensajes.
+- Mantiene onboarding, música, tickets, voz, economía y base SQLite.

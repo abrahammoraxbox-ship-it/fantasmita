@@ -1,0 +1,9 @@
+MUSIC FIX
+- Corrige resolución de búsquedas y URLs.
+- Busca con ytsearch1: cuando el usuario escribe un título.
+- Acepta resultados directos, wrappers y fallback de formatos de audio.
+- Hace defer de slash command mientras yt-dlp resuelve.
+- Mantiene FFmpeg local mediante imageio-ffmpeg.
+- No modifica estructura de canales, acceso, tickets, roles, cleanup ni base de datos.
+- La reproducción real depende de la fuente externa; si YouTube cambia/bloquea una extracción,
+  yt-dlp puede requerir actualización aunque el bot esté correcto.

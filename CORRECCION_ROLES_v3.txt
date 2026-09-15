@@ -1,0 +1,13 @@
+CORRECCIÓN ROLES v3
+Problema comprobado en la captura: el panel podía conservar visualmente una selección pero perder
+el usuario entre interacciones. Por eso mostraba Usuario: — y DAR/QUITAR fallaban.
+
+Cambios:
+1. Usuario y rol se guardan por servidor+fundador fuera de la View y se resuelven de nuevo en cada clic.
+2. DAR/QUITAR verifican el cambio real en Discord.
+3. DAR es un CAMBIO de rol: elimina los otros roles administrables antes de asignar el nuevo.
+4. Gamer deja de quedar contado cuando el usuario cambia a VIP/Élite/Guardián/etc.
+5. Todos los roles aceptados mantienen acceso a canales públicos aunque Gamer sea retirado.
+6. Gamer/Élite/Veterano son rangos automáticos exclusivos.
+7. Roles visuales siguen hoisted para aparecer como grupos en la lista derecha.
+8. !panel y el panel temporal mantienen la limpieza implementada.

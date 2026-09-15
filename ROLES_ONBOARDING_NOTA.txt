@@ -1,0 +1,9 @@
+ROLES + ONBOARDING FIX
+- Conserva los mismos roles y miembros: no borra/recrea roles existentes.
+- Fundador, Administrador y Guardián se muestran separados (hoist).
+- Sincroniza color, permisos, visibilidad y jerarquía de roles administrados.
+- Añade una guía visual de roles en #ayuda.
+- Los roles decorativos siguen sin permisos administrativos.
+- Revalida/reconstruye automáticamente los paneles de Términos y Solicitar acceso al entrar un miembro.
+- Mantiene intactos música #musica, tickets, voz privada, economía y base de datos.
+NOTA: los iconos nativos de rol de Discord dependen de las funciones disponibles en el servidor; esta versión no fuerza una función no disponible.

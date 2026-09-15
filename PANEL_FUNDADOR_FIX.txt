@@ -1,0 +1,8 @@
+PANEL FUNDADOR LIMPIO
+- Seleccionar usuario NO crea mensaje adicional.
+- Seleccionar rol NO crea mensaje adicional.
+- El mismo panel muestra la selección actual.
+- DAR/QUITAR actualiza ese mismo panel.
+- Si ya tiene/no tiene el rol, lo indica dentro del panel.
+- Tras DAR/QUITAR, la selección interna se limpia.
+- No se modificaron música, onboarding, tickets, voz ni roles automáticos.

@@ -1,0 +1,35 @@
+{
+  "version": "INTEGRADO_PRO",
+  "setup_version": 10,
+  "preserved": [
+    "ticket close fix",
+    "private voice fix",
+    "safe cleanup",
+    "compact structure"
+  ],
+  "added": [
+    "terms acceptance DB",
+    "owner-only access approval",
+    "stale request reconciliation",
+    "ticket reports/appeals/transcripts",
+    "advanced private voice controls",
+    "music commands and buttons",
+    "weekly missions",
+    "achievements",
+    "seasons",
+    "clans",
+    "LFG",
+    "tournaments/results",
+    "event calendar",
+    "anti-raid",
+    "panic mode",
+    "public social profile links",
+    "branding emoji installer",
+    "fail-fast startup"
+  ],
+  "external_or_unresolved": [
+    "OAuth/API notifications for Twitch/YouTube/Facebook require provider credentials",
+    "Exact native Discord 'Etiqueta' feature still needs identification"
+  ],
+  "permanent_channels_added": 0
+}

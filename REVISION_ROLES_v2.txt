@@ -1,0 +1,6 @@
+REVISIÓN ROLES v2
+• Gamer y roles visuales se muestran separados en la lista de miembros (hoist).
+• !panel borra el comando escrito y abrir otro panel elimina el panel temporal anterior.
+• El panel usa un único mensaje; DAR/QUITAR muestra resultado y lo limpia a los 4 segundos.
+• Gamer sigue siendo el rol base de acceso. Dar VIP/Élite/etc. no rompe permisos de acceso.
+• Discord muestra al miembro bajo su rol visible más alto; un grupo sin miembros desaparece de la lista.
