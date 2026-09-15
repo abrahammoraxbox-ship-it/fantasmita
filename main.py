@@ -108,7 +108,7 @@ async def on_raw_message_delete(payload):
         (payload.guild_id,payload.message_id)
     ).fetchone()
     if not row:return
-    if row[0] not in {"TERMS","ACCESS","ROLES","HELP","TICKET","VOICE","OWNER"}:return
+    if row[0] not in {"TERMS","ACCESS","ROLES","HELP","TICKET","VOICE","OWNER","MUSIC"}:return
     g=bot.get_guild(payload.guild_id)
     if not g:return
     print(f"♻️ Panel persistente eliminado ({row[0]}). Reparando...")
