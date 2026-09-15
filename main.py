@@ -10,8 +10,25 @@ from views import TermsView, AccessRequestView, TicketView, TicketCloseView, Voi
 BASE=os.path.dirname(os.path.abspath(__file__))
 os.makedirs(os.path.join(BASE,"data"),exist_ok=True)
 os.makedirs(os.path.join(BASE,"backups"),exist_ok=True)
+
+# En hosting, cargar DISCORD_TOKEN desde .env si no existe como variable del sistema
 TOKEN=os.getenv("DISCORD_TOKEN")
-if not TOKEN: raise RuntimeError("Falta DISCORD_TOKEN. Usa INICIAR_ESTABLE.bat")
+
+if not TOKEN:
+    env_path=os.path.join(BASE,".env")
+    if os.path.exists(env_path):
+        with open(env_path,"r",encoding="utf-8") as f:
+            for line in f:
+                line=line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key,value=line.split("=",1)
+                if key.strip()=="DISCORD_TOKEN":
+                    TOKEN=value.strip().strip('"').strip("'")
+                    break
+
+if not TOKEN:
+    raise RuntimeError("Falta DISCORD_TOKEN")
 
 intents=discord.Intents.default()
 intents.guilds=True; intents.members=True; intents.message_content=True
