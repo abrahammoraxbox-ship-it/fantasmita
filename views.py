@@ -138,18 +138,17 @@ class RenameModal(discord.ui.Modal,title="Renombrar sala"):
         if not ch:return await i.response.send_message("Solo puedes controlar tu sala.",ephemeral=True)
         await ch.edit(name=str(self.name));await i.response.send_message("✏️ Sala renombrada.",ephemeral=True)
 
-class VoiceMemberSelect(discord.ui.UserSelect):
-    def __init__(self,bot,action):
-        self.bot=bot;self.action=action
+class VoiceMemberSelect(discord.ui.Select):
+    def __init__(self,bot,action,channel,members):
+        self.bot=bot;self.action=action;self.channel_id=channel.id
         labels={"permit":"Selecciona a quien permitir","kick":"Selecciona a quien expulsar","transfer":"Selecciona al nuevo propietario"}
-        super().__init__(placeholder=labels[action],min_values=1,max_values=1)
+        options=[discord.SelectOption(label=m.display_name[:100],value=str(m.id),description=str(m)[:100]) for m in members[:25]]
+        super().__init__(placeholder=labels[action],min_values=1,max_values=1,options=options)
     async def callback(self,i):
         ch=owned_room(self.bot,i)
-        if not ch:return await i.response.send_message("Solo puedes controlar tu sala.",ephemeral=True)
-        m=self.values[0]
-        if not isinstance(m,discord.Member):
-            m=i.guild.get_member(m.id)
-        if not m:return await i.response.send_message("⚠️ No encuentro ese usuario en el servidor.",ephemeral=True)
+        if not ch or ch.id!=self.channel_id:return await i.response.send_message("Solo puedes controlar tu sala.",ephemeral=True)
+        m=i.guild.get_member(int(self.values[0]))
+        if not m:return await i.response.send_message("⚠️ Ese usuario ya no está disponible.",ephemeral=True)
         if m.bot:return await i.response.send_message("⚠️ Selecciona una persona, no un bot.",ephemeral=True)
         if m.id==i.user.id:return await i.response.send_message("⚠️ No puedes realizar esa acción sobre ti mismo.",ephemeral=True)
         if self.action=="permit":
@@ -157,7 +156,7 @@ class VoiceMemberSelect(discord.ui.UserSelect):
             except (discord.Forbidden,discord.HTTPException):return await i.response.send_message("❌ Discord no permitió cambiar los permisos de ese usuario.",ephemeral=True)
             msg=f"✅ {m.mention} puede entrar."
         elif self.action=="kick":
-            if not (m.voice and m.voice.channel==ch):return await i.response.send_message("⚠️ Ese usuario no está dentro de tu sala.",ephemeral=True)
+            if not (m.voice and m.voice.channel==ch):return await i.response.send_message("⚠️ Ese usuario ya no está dentro de tu sala.",ephemeral=True)
             try:
                 await ch.set_permissions(m,connect=False)
                 await m.move_to(None,reason=f"Expulsado de sala privada por {i.user}")
@@ -170,8 +169,9 @@ class VoiceMemberSelect(discord.ui.UserSelect):
         await i.response.edit_message(content=msg,view=None)
 
 class VoiceMemberActionView(discord.ui.View):
-    def __init__(self,bot,action):
-        super().__init__(timeout=120);self.add_item(VoiceMemberSelect(bot,action))
+    def __init__(self,bot,action,channel,members):
+        super().__init__(timeout=120);self.add_item(VoiceMemberSelect(bot,action,channel,members))
+
 
 def owned_room(bot,i):
     ch=i.user.voice.channel if i.user.voice else None
@@ -194,11 +194,30 @@ class VoiceControlView(discord.ui.View):
     @discord.ui.button(label="Renombrar",style=discord.ButtonStyle.secondary,emoji="✏️",custom_id="eco:vrename")
     async def rename(self,i,b):await i.response.send_modal(RenameModal(self.bot))
     @discord.ui.button(label="Permitir",style=discord.ButtonStyle.secondary,emoji="➕",custom_id="eco:vpermit")
-    async def permit(self,i,b):await i.response.send_message("➕ Selecciona el usuario que podrá entrar:",view=VoiceMemberActionView(self.bot,"permit"),ephemeral=True)
+    async def permit(self,i,b):
+        ch=owned_room(self.bot,i)
+        if not ch:return await i.response.send_message("Solo puedes controlar tu sala.",ephemeral=True)
+        members=[]
+        for m in i.guild.members:
+            if m.bot or m.id==i.user.id:continue
+            ow=ch.overwrites_for(m)
+            if ow.connect is False:members.append(m)
+        if not members:return await i.response.send_message("ℹ️ No hay usuarios bloqueados para permitir.",ephemeral=True)
+        await i.response.send_message("➕ Selecciona el usuario que podrá entrar:",view=VoiceMemberActionView(self.bot,"permit",ch,members),ephemeral=True)
     @discord.ui.button(label="Expulsar",style=discord.ButtonStyle.secondary,emoji="🚪",custom_id="eco:vkick")
-    async def kick(self,i,b):await i.response.send_message("🚪 Selecciona a la persona que quieres expulsar de tu sala:",view=VoiceMemberActionView(self.bot,"kick"),ephemeral=True)
+    async def kick(self,i,b):
+        ch=owned_room(self.bot,i)
+        if not ch:return await i.response.send_message("Solo puedes controlar tu sala.",ephemeral=True)
+        members=[m for m in ch.members if not m.bot and m.id!=i.user.id]
+        if not members:return await i.response.send_message("ℹ️ No hay otra persona dentro de tu sala para expulsar.",ephemeral=True)
+        await i.response.send_message("🚪 Selecciona a la persona que quieres expulsar:",view=VoiceMemberActionView(self.bot,"kick",ch,members),ephemeral=True)
     @discord.ui.button(label="Transferir",style=discord.ButtonStyle.secondary,emoji="👑",custom_id="eco:vtransfer")
-    async def transfer(self,i,b):await i.response.send_message("👑 Selecciona a la persona que recibirá la propiedad de la sala:",view=VoiceMemberActionView(self.bot,"transfer"),ephemeral=True)
+    async def transfer(self,i,b):
+        ch=owned_room(self.bot,i)
+        if not ch:return await i.response.send_message("Solo puedes controlar tu sala.",ephemeral=True)
+        members=[m for m in ch.members if not m.bot and m.id!=i.user.id]
+        if not members:return await i.response.send_message("ℹ️ No hay otra persona dentro de tu sala para transferirla.",ephemeral=True)
+        await i.response.send_message("👑 Selecciona al nuevo propietario:",view=VoiceMemberActionView(self.bot,"transfer",ch,members),ephemeral=True)
     @discord.ui.button(label="Eliminar sala",style=discord.ButtonStyle.danger,emoji="🗑️",custom_id="eco:vdelete")
     async def delete_room(self,i,b):
         ch=owned_room(self.bot,i)
@@ -246,9 +265,10 @@ class MusicControlView(discord.ui.View):
     @discord.ui.button(label="Detener",emoji="⏹️",style=discord.ButtonStyle.danger,custom_id="eco:music:stop")
     async def stop(self,i,b):
         cog=self.bot.get_cog("Music")
-        if cog:cog.queues[i.guild.id].clear();cog.current.pop(i.guild.id,None)
-        vc=self.vc(i)
-        if vc:await vc.disconnect(force=True)
+        if cog:await cog.stop_guild(i.guild,delete_player=True)
+        else:
+            vc=self.vc(i)
+            if vc:await vc.disconnect(force=True)
         await i.response.send_message("⏹️ Música detenida.",ephemeral=True)
 
 # Estado del panel fuera de la View: evita perder usuario/rol entre interacciones.

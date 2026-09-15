@@ -313,16 +313,15 @@ async def ensure_structure(bot,g):
         title="👻 SOLICITAR ACCESO",
         description="Después de aceptar los términos, pulsa el botón para enviar tu solicitud al fundador.",
         colour=0x7C3AED),AccessRequestView(bot))
-    # Retira el panel musical antiguo de #ayuda. El reproductor nuevo vive solo en #musica.
-    old_music=bot.db.execute("SELECT channel_id,message_id FROM panel_messages WHERE guild_id=? AND panel_key='MUSIC'",(g.id,)).fetchone()
-    if old_music:
-        old_ch=g.get_channel(old_music[0])
-        if old_ch:
-            try:
-                old_msg=await old_ch.fetch_message(old_music[1]);await old_msg.delete()
-            except (discord.NotFound,discord.Forbidden,discord.HTTPException) as e:
-                print("OLD MUSIC PANEL:",repr(e))
-        bot.db.execute("DELETE FROM panel_messages WHERE guild_id=? AND panel_key='MUSIC'",(g.id,))
+    # Panel musical fijo en #musica. ensure_panel evita duplicados y lo reconstruye si falta.
+    await ensure_panel(bot,music_ch,"MUSIC",discord.Embed(
+        title="🎵 FANTASMITA • CENTRO MUSICAL",
+        description=(
+            "Entra a un canal de voz y usa **`/play`** en este canal.\n"
+            "Puedes pegar un enlace de YouTube o escribir el nombre de una canción.\n\n"
+            "**Controles:** ⏸️ Pausa • ▶️ Continuar • ⏭️ Saltar • ⏹️ Detener\n"
+            "La tarjeta de la canción actual aparecerá debajo de este panel."
+        ),colour=0xA855F7),MusicControlView(bot))
 
     await ensure_panel(bot,help_ch,"ROLES",discord.Embed(
         title="🎭 ROLES • GUÍA RÁPIDA",
