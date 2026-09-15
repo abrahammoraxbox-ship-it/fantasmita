@@ -1,4 +1,4 @@
-import time,discord
+import time,asyncio,discord
 from discord.ext import commands
 
 class Voice(commands.Cog):
@@ -35,18 +35,30 @@ class Voice(commands.Cog):
         if before.channel and before.channel.id!=lobby_id:
             row=self.b.db.execute("SELECT owner_id FROM temp_voice WHERE guild_id=? AND channel_id=?",(g.id,before.channel.id)).fetchone()
             if row:
-                members=[x for x in before.channel.members if not x.bot]
-                if not members:
-                    try:await before.channel.delete(reason="Sala temporal vacía")
-                    except (discord.NotFound,discord.Forbidden,discord.HTTPException) as e:print("VOICE DELETE:",repr(e))
+                # Discord puede tardar unas décimas en actualizar la lista de miembros.
+                # Reconsultamos el canal antes de decidir si debe eliminarse.
+                await asyncio.sleep(0.75)
+                ch=g.get_channel(before.channel.id)
+                if not ch:
                     self.b.db.execute("DELETE FROM temp_voice WHERE channel_id=?",(before.channel.id,))
+                    return
+                members=[x for x in ch.members if not x.bot]
+                if not members:
+                    try:
+                        await ch.delete(reason="Sala temporal vacía")
+                    except discord.NotFound:
+                        pass
+                    except (discord.Forbidden,discord.HTTPException) as e:
+                        print("VOICE DELETE:",repr(e))
+                        return
+                    self.b.db.execute("DELETE FROM temp_voice WHERE channel_id=?",(ch.id,))
                 elif row[0]==m.id:
                     # Owner left while people remain: hand room to first remaining member.
                     new_owner=members[0]
-                    self.b.db.execute("UPDATE temp_voice SET owner_id=? WHERE channel_id=?",(new_owner.id,before.channel.id))
+                    self.b.db.execute("UPDATE temp_voice SET owner_id=? WHERE channel_id=?",(new_owner.id,ch.id))
                     panel=g.get_channel(panel_id)
                     if panel:
-                        try:await panel.send(f"👑 {new_owner.mention} ahora controla **{before.channel.name}** porque el propietario salió.",delete_after=45)
+                        try:await panel.send(f"👑 {new_owner.mention} ahora controla **{ch.name}** porque el propietario salió.",delete_after=45)
                         except discord.HTTPException as e:print("VOICE TRANSFER NOTICE:",repr(e))
     async def notice(self,m,ch,panel_id,existing):
         panel=m.guild.get_channel(panel_id)

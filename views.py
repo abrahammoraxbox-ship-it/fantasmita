@@ -180,6 +180,20 @@ class VoiceControlView(discord.ui.View):
     async def kick(self,i,b):await i.response.send_modal(MemberActionModal(self.bot,"kick"))
     @discord.ui.button(label="Transferir",style=discord.ButtonStyle.secondary,emoji="👑",custom_id="eco:vtransfer")
     async def transfer(self,i,b):await i.response.send_modal(MemberActionModal(self.bot,"transfer"))
+    @discord.ui.button(label="Eliminar sala",style=discord.ButtonStyle.danger,emoji="🗑️",custom_id="eco:vdelete")
+    async def delete_room(self,i,b):
+        ch=owned_room(self.bot,i)
+        if not ch:return await i.response.send_message("Solo puedes eliminar tu sala.",ephemeral=True)
+        await i.response.defer(ephemeral=True)
+        try:
+            await ch.delete(reason=f"Sala temporal eliminada por {i.user}")
+        except discord.NotFound:
+            pass
+        except (discord.Forbidden,discord.HTTPException) as e:
+            print("VOICE MANUAL DELETE:",repr(e))
+            return await i.followup.send("❌ Discord no permitió eliminar la sala.",ephemeral=True)
+        self.bot.db.execute("DELETE FROM temp_voice WHERE channel_id=?",(ch.id,))
+        await i.followup.send("🗑️ Sala eliminada.",ephemeral=True)
     @discord.ui.select(placeholder="Límite 1–10",options=[discord.SelectOption(label=str(x),value=str(x)) for x in range(1,11)],custom_id="eco:vlimit")
     async def limit(self,i,s):
         ch=owned_room(self.bot,i)
