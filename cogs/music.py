@@ -1,4 +1,5 @@
 import asyncio, collections, re, discord
+from urllib.parse import urlparse, parse_qs
 from discord.ext import commands
 import yt_dlp, imageio_ffmpeg
 
@@ -63,8 +64,25 @@ class Music(commands.Cog):
         fs.sort(key=lambda f:(f.get("abr") or 0,f.get("tbr") or 0),reverse=True)
         return fs[0]["url"] if fs else None
 
+    @staticmethod
+    def normalize_query(q):
+        q=q.strip()
+        if not URL_RE.match(q):return q
+        try:
+            u=urlparse(q)
+            host=u.netloc.lower().split(":")[0]
+            if host in {"youtube.com","www.youtube.com","m.youtube.com","music.youtube.com"} and u.path=="/watch":
+                vid=parse_qs(u.query).get("v",[None])[0]
+                if vid:return f"https://www.youtube.com/watch?v={vid}"
+            if host=="youtu.be":
+                vid=u.path.strip("/").split("/")[0]
+                if vid:return f"https://youtu.be/{vid}"
+        except Exception as e:
+            print("MUSIC URL NORMALIZE:",repr(e))
+        return q
+
     async def resolve(self,q):
-        q=q.strip();target=q if URL_RE.match(q) else f"ytsearch1:{q}";loop=asyncio.get_running_loop()
+        q=self.normalize_query(q);target=q if URL_RE.match(q) else f"ytsearch1:{q}";loop=asyncio.get_running_loop()
         def work():
             with yt_dlp.YoutubeDL(YDL_OPTS) as y:
                 info=y.extract_info(target,download=False)
@@ -74,7 +92,7 @@ class Music(commands.Cog):
                 u=self._pick_audio_url(info)
                 if not u:raise RuntimeError("Sin formato de audio")
                 return {"url":u,"title":info.get("title") or "Audio","webpage":info.get("webpage_url") or info.get("original_url") or q,
-                        "duration":info.get("duration")}
+                        "duration":info.get("duration"),"query":q}
         return await loop.run_in_executor(None,work)
 
     async def ensure_voice(self,ctx):
@@ -124,10 +142,29 @@ class Music(commands.Cog):
             self.current.pop(guild.id,None);await self.update_player(guild);return
         item=self.queues[guild.id].popleft() # played item disappears from pending queue immediately
         self.current[guild.id]=item;await self.update_player(guild)
+        # YouTube/CDN audio URLs expire. Refresh the stream immediately before FFmpeg starts.
+        try:
+            fresh=await self.resolve(item.get("webpage") or item.get("query") or item.get("url",""))
+            item.update(fresh)
+            self.current[guild.id]=item
+            await self.update_player(guild)
+        except Exception as e:
+            print("MUSIC REFRESH:",repr(e))
+            ch=self.music_channels.get(guild.id)
+            if ch:
+                try:await ch.send(f"⚠️ No pude preparar **{item.get('title','esa pista')}**. La salto sin detener Fantasmita.",delete_after=12)
+                except discord.HTTPException:pass
+            self.current.pop(guild.id,None)
+            return await self.start_next(guild)
         try:
             src=discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(item["url"],executable=imageio_ffmpeg.get_ffmpeg_exe(),**FFMPEG_OPTS),volume=self.volumes[guild.id])
         except Exception as e:
-            print("MUSIC SOURCE:",repr(e));self.current.pop(guild.id,None);return await self.start_next(guild)
+            print("MUSIC SOURCE:",repr(e))
+            ch=self.music_channels.get(guild.id)
+            if ch:
+                try:await ch.send("⚠️ FFmpeg no pudo abrir esa pista. La salto sin detener Fantasmita.",delete_after=12)
+                except discord.HTTPException:pass
+            self.current.pop(guild.id,None);return await self.start_next(guild)
         loop=asyncio.get_running_loop()
         def after(err):
             if err:print("MUSIC PLAYER:",repr(err))
