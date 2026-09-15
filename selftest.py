@@ -14,6 +14,8 @@ def run():
     assert "SETUP_VERSION=10" in core
     assert "cogs.music" in main and "cogs.progression" in main and "cogs.competitive" in main
     assert "i.user.id==i.guild.owner_id" in views
+    assert 'row and row[0]=="approved"' in views
+    assert 'row and row[0]=="pending" and not row[1]' in views
     assert "eco:music:pause" in views and "eco:vtransfer" in views
     assert not re.search(r"except\s*:\s*pass","\n".join(files.values()))
     fd,path=tempfile.mkstemp(prefix="eco_integrado_",suffix=".db");os.close(fd)

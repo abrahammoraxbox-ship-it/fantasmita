@@ -27,7 +27,7 @@ class Community(commands.Cog):
   self.b.db.execute('UPDATE users SET messages=messages+1 WHERE guild_id=? AND user_id=?',(m.guild.id,m.author.id))
   if now-last<60:return
   gain=random.randint(8,14);new=xp+gain;self.b.db.execute('UPDATE users SET xp=?,coins=coins+?,last_xp=? WHERE guild_id=? AND user_id=?',(new,random.randint(1,3),now,m.guild.id,m.author.id))
-  if level(new)>level(xp):await m.channel.send(f'🔥 {m.author.mention} subió a **Nivel {level(new)}**.')
+  if level(new)>level(xp):await m.channel.send(f'🔥 {m.author.mention} subió a **Nivel {level(new)}**.',delete_after=120)
  @commands.hybrid_command(description='Tu perfil gamer')
  async def perfil(self,ctx,m:discord.Member=None):
   m=m or ctx.author;xp,c,msg,d,s,r,last,lr=self.b.db.stats(ctx.guild.id,m.id);e=discord.Embed(title=f'👻 {m.display_name}',colour=0x8B5CF6);e.set_thumbnail(url=m.display_avatar.url)

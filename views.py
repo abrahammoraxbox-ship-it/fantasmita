@@ -29,6 +29,12 @@ class AccessRequestView(discord.ui.View):
         if not accepted:
             return await i.response.send_message("📜 Primero acepta los términos y condiciones.",ephemeral=True)
         row=self.bot.db.execute("SELECT status,message_id FROM access_requests WHERE guild_id=? AND user_id=?",(g.id,i.user.id)).fetchone()
+        # La base de datos es la autoridad: un usuario ya aprobado no puede volver a solicitar
+        # acceso aunque su rol Gamer haya sido retirado manualmente por accidente.
+        if row and row[0]=="approved":
+            return await i.response.send_message("✅ Ya tienes acceso a **El Eco del Vacío**.",ephemeral=True)
+        if row and row[0]=="pending" and not row[1]:
+            return await i.response.send_message("⏳ Ya tienes una solicitud pendiente.",ephemeral=True)
         cfg=self.bot.db.execute("SELECT requests_ch FROM guild_config WHERE guild_id=?",(g.id,)).fetchone()
         ch=g.get_channel(cfg[0]) if cfg else None
         if not ch:return await i.response.send_message("⚠️ No encuentro el canal de revisión.",ephemeral=True)

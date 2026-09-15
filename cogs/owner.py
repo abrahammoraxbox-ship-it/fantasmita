@@ -16,6 +16,14 @@ class Owner(commands.Cog):
         except (discord.Forbidden,discord.HTTPException):
             pass
         key=(ctx.guild.id,ctx.author.id)
+        # Evita duplicados incluso si el bot se reinició y perdió la referencia en memoria.
+        try:
+            async for prior in ctx.channel.history(limit=30):
+                if prior.author==self.b.user and prior.embeds and prior.embeds[0].title=="👑 PANEL DE ROLES":
+                    try:await prior.delete()
+                    except (discord.NotFound,discord.Forbidden,discord.HTTPException):pass
+        except (discord.Forbidden,discord.HTTPException):
+            pass
         old=self.active_panels.get(key)
         if old:
             try:
@@ -27,8 +35,7 @@ class Owner(commands.Cog):
                 title="👑 PANEL DE ROLES",
                 description="👤 **Usuario:** —\n🎭 **Rol:** —\n\nSelecciona usuario y rol.",
                 colour=0x8B5CF6),
-            view=OwnerPanel(ctx.author.id),
-            delete_after=300)
+            view=OwnerPanel(ctx.author.id))
         self.active_panels[key]=msg
     @commands.command()
     async def reglas(self,ctx,*,texto=None):

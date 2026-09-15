@@ -7,6 +7,15 @@ from discord.ext import commands
 from core import Database, ensure_structure
 from views import TermsView, AccessRequestView, TicketView, TicketCloseView, VoiceControlView, MusicControlView, DecisionView
 
+# Limpieza anti-spam: toda respuesta normal enviada con ctx.send desaparece en 2 minutos.
+# Los paneles persistentes usan channel.send/ensure_panel y NO pasan por esta regla.
+COMMAND_MESSAGE_TTL = 120
+_original_context_send = commands.Context.send
+async def _clean_context_send(self, *args, **kwargs):
+    kwargs.setdefault("delete_after", COMMAND_MESSAGE_TTL)
+    return await _original_context_send(self, *args, **kwargs)
+commands.Context.send = _clean_context_send
+
 BASE=os.path.dirname(os.path.abspath(__file__))
 os.makedirs(os.path.join(BASE,"data"),exist_ok=True)
 os.makedirs(os.path.join(BASE,"backups"),exist_ok=True)
@@ -81,6 +90,32 @@ async def on_ready():
 
 @bot.event
 async def on_guild_join(g): await configure(g)
+
+@bot.event
+async def on_command(ctx):
+    # También limpia el texto !comando escrito por el usuario. No afecta mensajes normales.
+    try:
+        await ctx.message.delete(delay=COMMAND_MESSAGE_TTL)
+    except (discord.NotFound,discord.Forbidden,discord.HTTPException):
+        pass
+
+@bot.event
+async def on_raw_message_delete(payload):
+    # Si alguien elimina un panel estructural, se reconstruye sin crear duplicados.
+    if not payload.guild_id:return
+    row=bot.db.execute(
+        "SELECT panel_key FROM panel_messages WHERE guild_id=? AND message_id=?",
+        (payload.guild_id,payload.message_id)
+    ).fetchone()
+    if not row:return
+    if row[0] not in {"TERMS","ACCESS","ROLES","HELP","TICKET","VOICE","OWNER"}:return
+    g=bot.get_guild(payload.guild_id)
+    if not g:return
+    print(f"♻️ Panel persistente eliminado ({row[0]}). Reparando...")
+    try:
+        await configure(g)
+    except Exception:
+        traceback.print_exc()
 
 @bot.event
 async def on_command_error(ctx,error):
