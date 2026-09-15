@@ -238,9 +238,18 @@ class MusicControlView(discord.ui.View):
         if vc:await vc.disconnect(force=True)
         await i.response.send_message("⏹️ Música detenida.",ephemeral=True)
 
+# Estado del panel fuera de la View: evita perder usuario/rol entre interacciones.
+OWNER_PANEL_STATE={}
+MANAGED_OWNER_ROLES={
+    "🎮 Gamer","🏆 Élite","💎 VIP","📺 Creador","🌙 Veterano","🏅 Campeón",
+    "⚔️ Guardián","🛡️ Administrador"
+}
+PROTECTED_OWNER_ROLES={"👑 Fundador","⏳ Pendiente"}
+
 class OwnerPanel(discord.ui.View):
     def __init__(self,owner):
-        super().__init__(timeout=300);self.owner=owner;self.member=None;self.role=None
+        super().__init__(timeout=300)
+        self.owner=int(owner)
 
     async def interaction_check(self,i):
         if i.user.id!=self.owner:
@@ -248,76 +257,105 @@ class OwnerPanel(discord.ui.View):
             return False
         return True
 
-    def make_embed(self,status=None):
-        who=self.member.mention if self.member else "—"
-        role=self.role.mention if self.role else "—"
-        text=f"👤 **Usuario:** {who}\n🎭 **Rol:** {role}"
+    def key(self,i):
+        return (i.guild.id,self.owner)
+
+    def state(self,i):
+        return OWNER_PANEL_STATE.setdefault(self.key(i),{"member_id":None,"role_id":None})
+
+    def resolve(self,i):
+        st=self.state(i)
+        member=i.guild.get_member(st.get("member_id")) if st.get("member_id") else None
+        role=i.guild.get_role(st.get("role_id")) if st.get("role_id") else None
+        return member,role
+
+    def clear(self,i):
+        OWNER_PANEL_STATE[self.key(i)]={"member_id":None,"role_id":None}
+
+    def role_allowed(self,i,role):
+        """El fundador puede gestionar roles propios y personalizados seguros bajo Fantasmita."""
+        if not role or role==i.guild.default_role:return False
+        if role.name in PROTECTED_OWNER_ROLES:return False
+        if role.managed:return False
+        me=i.guild.me
+        if not me or role>=me.top_role:return False
+        return True
+
+    def make_embed(self,i,status=None):
+        member,role=self.resolve(i)
+        who=member.mention if member else "—"
+        role_text=role.mention if role else "—"
+        text=f"👤 **Usuario:** {who}\n🎭 **Rol:** {role_text}"
+        if role:
+            text+=f"\n👥 **Miembros con este rol:** {len(role.members)}"
+        text+="\n\nPuedes usar los roles de Fantasmita o roles personalizados que estén debajo del bot."
         if status:text+=f"\n\n{status}"
         return discord.Embed(title="👑 PANEL DE ROLES",description=text,colour=0x8B5CF6)
 
     async def refresh(self,i,status=None,autoclear=False):
-        """Edita un único panel. Los avisos se borran solos."""
         try:
-            await i.response.edit_message(embed=self.make_embed(status),view=self)
+            await i.response.edit_message(embed=self.make_embed(i,status),view=self)
         except discord.InteractionResponded:
-            await i.edit_original_response(embed=self.make_embed(status),view=self)
+            await i.edit_original_response(embed=self.make_embed(i,status),view=self)
         if autoclear and status:
             msg=i.message
             async def clear_status():
                 await asyncio.sleep(4)
-                try:
-                    await msg.edit(embed=self.make_embed(),view=self)
-                except (discord.NotFound,discord.Forbidden,discord.HTTPException):
-                    pass
+                try:await msg.edit(embed=self.make_embed(i),view=self)
+                except (discord.NotFound,discord.Forbidden,discord.HTTPException):pass
             asyncio.create_task(clear_status())
 
     @discord.ui.select(cls=discord.ui.UserSelect,placeholder="Seleccionar usuario",row=0)
     async def us(self,i,s):
-        self.member=s.values[0]
+        self.state(i)["member_id"]=s.values[0].id
         await self.refresh(i)
 
     @discord.ui.select(cls=discord.ui.RoleSelect,placeholder="Seleccionar rol",row=1)
     async def ro(self,i,s):
-        self.role=s.values[0]
+        self.state(i)["role_id"]=s.values[0].id
         await self.refresh(i)
-
-    def safe(self):
-        return self.role and self.role.name in {"🎮 Gamer","🏆 Élite","💎 VIP","📺 Creador","🌙 Veterano","🏅 Campeón","⚔️ Guardián","🛡️ Administrador"}
 
     @discord.ui.button(label="DAR",style=discord.ButtonStyle.success,row=2)
     async def add(self,i,b):
-        if not self.member or not self.safe():
-            return await self.refresh(i,"⚠️ Selecciona un usuario y un rol administrable.")
-        if self.role in self.member.roles:
-            status=f"ℹ️ **{self.member.display_name}** ya tiene **{self.role.name}**."
-            self.member=None;self.role=None
-            return await self.refresh(i,status,autoclear=True)
+        member,role=self.resolve(i)
+        if not member or not self.role_allowed(i,role):
+            return await self.refresh(i,"⚠️ Selecciona usuario y un rol administrable. Fundador/Pendiente y roles por encima del bot están protegidos.")
+        if role in member.roles:
+            self.clear(i)
+            return await self.refresh(i,f"ℹ️ **{member.display_name}** ya tiene **{role.name}**.",autoclear=True)
         try:
-            member=self.member;role=self.role
             await member.add_roles(role,reason=f"Panel Fundador: {i.user}")
-            self.member=None;self.role=None
-            await self.refresh(i,f"✅ **{role.name}** asignado a **{member.display_name}**.",autoclear=True)
+            # Verificación contra Discord: no informa éxito si el rol no quedó realmente aplicado.
+            fresh=await i.guild.fetch_member(member.id)
+            if role.id not in {r.id for r in fresh.roles}:
+                return await self.refresh(i,"❌ Discord no confirmó la asignación del rol.")
+            count=sum(1 for m in i.guild.members if role in m.roles)
+            self.clear(i)
+            await self.refresh(i,f"✅ **{role.name}** asignado a **{member.display_name}**. Miembros con el rol: **{count}**.",autoclear=True)
         except discord.Forbidden:
-            await self.refresh(i,"❌ Fantasmita debe estar por encima de ese rol en la jerarquía.")
+            await self.refresh(i,"❌ Fantasmita debe estar por encima de ese rol y tener Administrar roles.")
         except discord.HTTPException as e:
-            print("OWNER ROLE ADD:",repr(e))
-            await self.refresh(i,"❌ Discord no permitió asignar el rol.")
+            print("OWNER ROLE ADD:",repr(e));await self.refresh(i,"❌ Discord no permitió asignar el rol.")
 
     @discord.ui.button(label="QUITAR",style=discord.ButtonStyle.danger,row=2)
     async def rem(self,i,b):
-        if not self.member or not self.safe():
-            return await self.refresh(i,"⚠️ Selecciona un usuario y un rol administrable.")
-        if self.role not in self.member.roles:
-            status=f"ℹ️ **{self.member.display_name}** no tiene **{self.role.name}**."
-            self.member=None;self.role=None
-            return await self.refresh(i,status,autoclear=True)
+        member,role=self.resolve(i)
+        if not member or not self.role_allowed(i,role):
+            return await self.refresh(i,"⚠️ Selecciona usuario y un rol administrable. Fundador/Pendiente y roles por encima del bot están protegidos.")
+        if role not in member.roles:
+            self.clear(i)
+            return await self.refresh(i,f"ℹ️ **{member.display_name}** no tiene **{role.name}**.",autoclear=True)
         try:
-            member=self.member;role=self.role
             await member.remove_roles(role,reason=f"Panel Fundador: {i.user}")
-            self.member=None;self.role=None
-            await self.refresh(i,f"🗑️ **{role.name}** retirado de **{member.display_name}**.",autoclear=True)
+            fresh=await i.guild.fetch_member(member.id)
+            if role.id in {r.id for r in fresh.roles}:
+                return await self.refresh(i,"❌ Discord todavía muestra el rol en el usuario; no se confirmó la eliminación.")
+            # member.remove_roles actualiza la caché; el conteo se calcula de nuevo, nunca se guarda.
+            count=sum(1 for m in i.guild.members if role in m.roles)
+            self.clear(i)
+            await self.refresh(i,f"🗑️ **{role.name}** retirado de **{member.display_name}**. Miembros con el rol: **{count}**.",autoclear=True)
         except discord.Forbidden:
-            await self.refresh(i,"❌ Fantasmita debe estar por encima de ese rol en la jerarquía.")
+            await self.refresh(i,"❌ Fantasmita debe estar por encima de ese rol y tener Administrar roles.")
         except discord.HTTPException as e:
-            print("OWNER ROLE REMOVE:",repr(e))
-            await self.refresh(i,"❌ Discord no permitió retirar el rol.")
+            print("OWNER ROLE REMOVE:",repr(e));await self.refresh(i,"❌ Discord no permitió retirar el rol.")
+

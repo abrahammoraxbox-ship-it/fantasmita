@@ -332,7 +332,9 @@ async def ensure_structure(bot,g):
             "💎 **VIP** — reconocimiento manual del fundador.\n🏆 **Élite** — automático al alcanzar 100 mensajes válidos.\n"
             "🏅 **Campeón** — reconocimiento competitivo/manual.\n🌙 **Veterano** — automático al alcanzar 500 mensajes válidos.\n"
             "🎮 **Gamer** — miembro con acceso aprobado.\n⏳ **Pendiente** — acceso aún no aprobado.\n\n"
-            "Los roles decorativos no reciben permisos administrativos.\\n\\n"            "🎨 Discord muestra el **color del rol más alto** en el nombre del miembro. "            "El emoji del rol identifica su insignia dentro del perfil/lista de roles."
+            "Los roles decorativos no reciben permisos administrativos.\n\n"
+            "🎭 Los roles personalizados creados por el fundador también pueden gestionarse desde `!panel` si están debajo de Fantasmita.\n\n"
+            "🎨 Discord muestra el **color del rol más alto** en el nombre del miembro. "            "El emoji del rol identifica su insignia dentro del perfil/lista de roles."
         ),colour=0x8B5CF6))
     await ensure_panel(bot,help_ch,"HELP",discord.Embed(
         title="🧠 CENTRO DE COMANDOS",
