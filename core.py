@@ -168,7 +168,7 @@ async def ensure_panel(bot,channel,key,embed,view=None):
                           WHERE guild_id=? AND panel_key=?""",(channel.guild.id,key)).fetchone()
     if row:
         old_channel=channel.guild.get_channel(row[0])
-        if old_channel:
+        if old_channel and old_channel.id==channel.id:
             try:
                 msg=await old_channel.fetch_message(row[1])
                 await msg.edit(content=marker,embed=embed,view=view)
@@ -182,7 +182,7 @@ async def ensure_panel(bot,channel,key,embed,view=None):
 
     # Migration fallback for panels created by older bot versions.
     try:
-        async for msg in channel.history(limit=100):
+        async for msg in channel.history(limit=250):
             if msg.author==bot.user and marker in (msg.content or ""):
                 await msg.edit(content=marker,embed=embed,view=view)
                 bot.db.execute("INSERT OR REPLACE INTO panel_messages VALUES(?,?,?,?)",

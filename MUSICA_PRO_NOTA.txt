@@ -8,3 +8,5 @@ MUSICA PRO
 - Los avisos temporales se borran solos.
 - Al parar, se vacía la cola, Fantasmita sale de voz y se elimina la tarjeta del reproductor.
 - No cambia acceso, términos, tickets, roles, voz privada, economía ni datos existentes.
+
+REVISION ACTUAL: #musica conserva un único panel informativo sin botones. /play no crea tarjetas. /pruebavoz aísla Discord Voice de YouTube/FFmpeg.

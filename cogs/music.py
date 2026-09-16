@@ -1,4 +1,4 @@
-import asyncio, collections, re, sys, time, discord
+import asyncio, collections, re, sys, time, math, struct, discord
 from urllib.parse import urlparse, parse_qs
 from discord.ext import commands
 import yt_dlp, imageio_ffmpeg
@@ -11,10 +11,24 @@ URL_RE=re.compile(r"^https?://",re.I)
 # PlayerView dinámico desactivado para evitar un segundo sistema de controles.
 # Se conserva únicamente MusicControlView persistente de views.py.
 
+class _ToneSource(discord.AudioSource):
+    """PCM estéreo 48 kHz para diagnosticar Discord Voice sin YouTube/FFmpeg."""
+    def __init__(self,seconds=3.0,freq=440.0,volume=0.18):
+        self.frames_left=int(seconds*50);self.phase=0;self.freq=freq;self.volume=volume
+    def read(self):
+        if self.frames_left<=0:return b""
+        out=bytearray()
+        for _ in range(960):
+            sample=int(32767*self.volume*math.sin(2*math.pi*self.freq*self.phase/48000))
+            self.phase+=1;out.extend(struct.pack("<hh",sample,sample))
+        self.frames_left-=1
+        return bytes(out)
+    def is_opus(self):return False
+
 class Music(commands.Cog):
     def __init__(self,b):
         self.b=b;self.queues=collections.defaultdict(collections.deque);self.current={}
-        self.volumes=collections.defaultdict(lambda:0.5);self.player_messages={};self.music_channels={}
+        self.volumes=collections.defaultdict(lambda:0.5);self.music_channels={}
 
     def in_music(self,ctx):return bool(ctx.guild and getattr(ctx.channel,"name",None)=="musica")
     async def require_music(self,ctx):
@@ -156,14 +170,10 @@ class Music(commands.Cog):
         await self.update_player(guild)
 
     async def stop_guild(self,guild,delete_player=True):
+        # Detener audio nunca toca el panel fijo de #musica.
         self.queues[guild.id].clear();self.current.pop(guild.id,None)
         vc=guild.voice_client
         if vc:await vc.disconnect(force=True)
-        if delete_player:
-            old=self.player_messages.pop(guild.id,None)
-            if old:
-                try:await old.delete()
-                except discord.HTTPException:pass
 
     @commands.hybrid_command(description="Reproduce audio o añade a la cola")
     async def play(self,ctx,*,busqueda:str):
@@ -199,6 +209,23 @@ class Music(commands.Cog):
 
         # Borra el acuse temporal del slash command. El panel MUSIC fijo es el único
         # elemento musical que debe permanecer en el canal.
+        if interaction:
+            try:await interaction.delete_original_response()
+            except (discord.NotFound,discord.HTTPException):pass
+
+    @commands.hybrid_command(description="Prueba Discord Voice sin YouTube ni FFmpeg")
+    async def pruebavoz(self,ctx):
+        if not await self.require_music(ctx):return
+        interaction=ctx.interaction
+        if interaction and not interaction.response.is_done():await interaction.response.defer(ephemeral=True)
+        vc=await self.ensure_voice(ctx)
+        if not vc:return
+        if vc.is_playing() or vc.is_paused():vc.stop()
+        try:
+            vc.play(_ToneSource(),after=lambda e: print("VOICE TEST END:",repr(e)) if e else print("VOICE TEST END: OK"))
+            print(f"VOICE TEST START: PCM 440Hz | voice={vc.channel}")
+        except Exception as e:
+            print("VOICE TEST START ERROR:",repr(e))
         if interaction:
             try:await interaction.delete_original_response()
             except (discord.NotFound,discord.HTTPException):pass
@@ -249,6 +276,6 @@ class Music(commands.Cog):
         await self.stop_guild(ctx.guild,True);await ctx.send("⏹️ Música detenida.",delete_after=4)
 
     def cog_unload(self):
-        self.queues.clear();self.current.clear();self.player_messages.clear();self.music_channels.clear()
+        self.queues.clear();self.current.clear();self.music_channels.clear()
 
 async def setup(b):await b.add_cog(Music(b))

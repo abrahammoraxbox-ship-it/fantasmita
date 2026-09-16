@@ -16,7 +16,10 @@ def run():
     assert "i.user.id==i.guild.owner_id" in views
     assert 'row and row[0]=="approved"' in views
     assert 'row and row[0]=="pending" and not row[1]' in views
-    assert "eco:music:pause" in views and "eco:vtransfer" in views
+    assert "eco:music:pause" not in views and "eco:vtransfer" in views
+    assert "view=None" in core and "CENTRO MUSICAL" in core
+    music=open(os.path.join(base,"cogs","music.py"),encoding="utf-8").read()
+    assert "async def pruebavoz" in music and "class _ToneSource" in music
     assert not re.search(r"except\s*:\s*pass","\n".join(files.values()))
     fd,path=tempfile.mkstemp(prefix="eco_integrado_",suffix=".db");os.close(fd)
     db=sqlite3.connect(path)

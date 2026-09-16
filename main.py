@@ -120,6 +120,28 @@ async def on_raw_message_delete(payload):
         traceback.print_exc()
 
 @bot.event
+async def on_raw_bulk_message_delete(payload):
+    # Discord puede borrar varios mensajes de una vez (purge). Si uno era un panel
+    # persistente, reconstruimos la estructura una sola vez.
+    if not payload.guild_id:return
+    ids=tuple(payload.message_ids)
+    if not ids:return
+    placeholders=",".join("?" for _ in ids)
+    row=bot.db.execute(
+        f"SELECT panel_key FROM panel_messages WHERE guild_id=? AND message_id IN ({placeholders}) LIMIT 1",
+        (payload.guild_id,*ids)
+    ).fetchone()
+    if not row:return
+    g=bot.get_guild(payload.guild_id)
+    if not g:return
+    bot.db.execute(
+        f"DELETE FROM panel_messages WHERE guild_id=? AND message_id IN ({placeholders})",
+        (payload.guild_id,*ids)
+    )
+    try:await configure(g)
+    except Exception:traceback.print_exc()
+
+@bot.event
 async def on_command_error(ctx,error):
     if isinstance(error,commands.CommandNotFound): return
     if isinstance(error,commands.MissingPermissions): return await ctx.send("🔒 No tienes permisos para esa acción.")

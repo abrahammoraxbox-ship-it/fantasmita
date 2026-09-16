@@ -239,46 +239,6 @@ class VoiceControlView(discord.ui.View):
         await ch.edit(user_limit=int(s.values[0]));await i.response.send_message(f"👥 Límite: {s.values[0]}.",ephemeral=True)
 
 
-class MusicControlView(discord.ui.View):
-    def __init__(self,bot):super().__init__(timeout=None);self.bot=bot
-    def vc(self,i):return i.guild.voice_client
-    async def interaction_check(self,i):
-        if getattr(i.channel,"name",None)!="musica":
-            await i.response.send_message("🎵 El reproductor funciona solo en #musica.",ephemeral=True)
-            return False
-        return True
-    @discord.ui.button(label="Pausa",emoji="⏸️",style=discord.ButtonStyle.secondary,custom_id="eco:music:pause")
-    async def pause(self,i,b):
-        vc=self.vc(i)
-        if vc and vc.is_playing():vc.pause();return await i.response.send_message("⏸️ Pausado.",ephemeral=True)
-        await i.response.send_message("No hay música reproduciéndose.",ephemeral=True)
-    @discord.ui.button(label="Continuar",emoji="▶️",style=discord.ButtonStyle.success,custom_id="eco:music:resume")
-    async def resume(self,i,b):
-        vc=self.vc(i)
-        if vc and vc.is_paused():vc.resume();return await i.response.send_message("▶️ Continuando.",ephemeral=True)
-        await i.response.send_message("No hay música pausada.",ephemeral=True)
-    @discord.ui.button(label="Saltar",emoji="⏭️",style=discord.ButtonStyle.primary,custom_id="eco:music:skip")
-    async def skip(self,i,b):
-        vc=self.vc(i)
-        if vc and (vc.is_playing() or vc.is_paused()):vc.stop();return await i.response.send_message("⏭️ Saltada.",ephemeral=True)
-        await i.response.send_message("No hay pista activa.",ephemeral=True)
-    @discord.ui.button(label="Detener",emoji="⏹️",style=discord.ButtonStyle.danger,custom_id="eco:music:stop")
-    async def stop(self,i,b):
-        cog=self.bot.get_cog("Music")
-        if cog:await cog.stop_guild(i.guild,delete_player=True)
-        else:
-            vc=self.vc(i)
-            if vc:await vc.disconnect(force=True)
-        await i.response.send_message("⏹️ Música detenida.",ephemeral=True)
-
-# Estado del panel fuera de la View: evita perder usuario/rol entre interacciones.
-OWNER_PANEL_STATE={}
-MANAGED_OWNER_ROLES={
-    "🎮 Gamer","🏆 Élite","💎 VIP","📺 Creador","🌙 Veterano","🏅 Campeón",
-    "⚔️ Guardián","🛡️ Administrador"
-}
-PROTECTED_OWNER_ROLES={"👑 Fundador","⏳ Pendiente"}
-
 class OwnerPanel(discord.ui.View):
     def __init__(self,owner):
         super().__init__(timeout=300)
