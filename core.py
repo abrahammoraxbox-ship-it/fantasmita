@@ -324,7 +324,7 @@ async def ensure_structure(bot,g):
             "Entra a un canal de voz y usa **`/play`** en este canal.\n"
             "Puedes pegar un enlace de YouTube o escribir el nombre de una canción.\n\n"
             "**Controles:** ⏸️ Pausa • ▶️ Continuar • ⏭️ Saltar • ⏹️ Detener\n"
-            "La tarjeta de la canción actual aparecerá debajo de este panel."
+            "Este es el único panel musical permanente."
         ),colour=0xA855F7),MusicControlView(bot))
 
     await ensure_panel(bot,help_ch,"ROLES",discord.Embed(

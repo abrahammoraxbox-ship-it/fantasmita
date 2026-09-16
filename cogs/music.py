@@ -176,8 +176,7 @@ class Music(commands.Cog):
             print("MUSIC RESOLVE:",repr(e));return await ctx.send("❌ No pude obtener audio de esa fuente.")
         self.music_channels[ctx.guild.id]=ctx.channel
         self.queues[ctx.guild.id].append(item)
-        # Confirmation auto-deletes; the single player card remains.
-        await ctx.send(f"🎵 Añadido: **{item['title']}**",delete_after=5)
+        # /play no crea mensajes ni tarjetas adicionales: el único panel visual es el panel MUSIC fijo.
         if not vc.is_playing() and not vc.is_paused():await self.start_next(ctx.guild)
         else:await self.update_player(ctx.guild)
 
