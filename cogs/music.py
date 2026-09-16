@@ -1,4 +1,4 @@
-import asyncio, collections, re, discord
+import asyncio, collections, re, sys, time, discord
 from urllib.parse import urlparse, parse_qs
 from discord.ext import commands
 import yt_dlp, imageio_ffmpeg
@@ -92,7 +92,8 @@ class Music(commands.Cog):
                 u=self._pick_audio_url(info)
                 if not u:raise RuntimeError("Sin formato de audio")
                 return {"url":u,"title":info.get("title") or "Audio","webpage":info.get("webpage_url") or info.get("original_url") or q,
-                        "duration":info.get("duration"),"query":q,"http_headers":info.get("http_headers") or {}}
+                        "duration":info.get("duration"),"query":q,"http_headers":info.get("http_headers") or {},
+                        "resolved_at":time.time()}
         return await loop.run_in_executor(None,work)
 
     async def ensure_voice(self,ctx):
@@ -142,20 +143,25 @@ class Music(commands.Cog):
             self.current.pop(guild.id,None);await self.update_player(guild);return
         item=self.queues[guild.id].popleft() # played item disappears from pending queue immediately
         self.current[guild.id]=item;await self.update_player(guild)
-        # YouTube/CDN audio URLs expire. Refresh the stream immediately before FFmpeg starts.
-        try:
-            fresh=await self.resolve(item.get("webpage") or item.get("query") or item.get("url",""))
-            item.update(fresh)
-            self.current[guild.id]=item
-            await self.update_player(guild)
-        except Exception as e:
-            print("MUSIC REFRESH:",repr(e))
-            ch=self.music_channels.get(guild.id)
-            if ch:
-                try:await ch.send(f"⚠️ No pude preparar **{item.get('title','esa pista')}**. La salto sin detener Fantasmita.",delete_after=12)
-                except discord.HTTPException:pass
-            self.current.pop(guild.id,None)
-            return await self.start_next(guild)
+        # /play ya resolvió una URL de audio fresca. No volvemos a consultar YouTube
+        # inmediatamente: la doble extracción podía fallar/rate-limitar y hacía desaparecer
+        # la tarjeta sin llegar a FFmpeg. Solo refrescamos pistas que esperaron en cola.
+        age=time.time()-float(item.get("resolved_at") or 0)
+        if not item.get("url") or age>300:
+            try:
+                fresh=await self.resolve(item.get("webpage") or item.get("query") or item.get("url",""))
+                item.update(fresh)
+                self.current[guild.id]=item
+                await self.update_player(guild)
+                print(f"MUSIC REFRESH OK: {item.get('title','Audio')} | age={age:.0f}s")
+            except Exception as e:
+                print("MUSIC REFRESH:",repr(e))
+                ch=self.music_channels.get(guild.id)
+                if ch:
+                    try:await ch.send(f"⚠️ No pude preparar **{item.get('title','esa pista')}**. La salto sin detener Fantasmita.",delete_after=12)
+                    except discord.HTTPException:pass
+                self.current.pop(guild.id,None)
+                return await self.start_next(guild)
         try:
             # yt-dlp entrega cabeceras que algunos CDN (incluido YouTube) exigen también a FFmpeg.
             headers=item.get("http_headers") or {}
@@ -164,9 +170,11 @@ class Music(commands.Cog):
             if header_blob:
                 safe_headers=header_blob.replace('"','\\"')
                 before += f' -headers "{safe_headers}"'
+            ffmpeg_path=imageio_ffmpeg.get_ffmpeg_exe()
+            print(f"MUSIC FFMPEG: {ffmpeg_path}")
             ffmpeg=discord.FFmpegPCMAudio(
-                item["url"],executable=imageio_ffmpeg.get_ffmpeg_exe(),
-                before_options=before,options="-vn -loglevel warning")
+                item["url"],executable=ffmpeg_path,
+                before_options=before,options="-vn -loglevel warning",stderr=sys.stderr)
             src=discord.PCMVolumeTransformer(ffmpeg,volume=self.volumes[guild.id])
         except Exception as e:
             print("MUSIC SOURCE:",repr(e))
