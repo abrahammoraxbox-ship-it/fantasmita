@@ -168,17 +168,40 @@ class Music(commands.Cog):
     @commands.hybrid_command(description="Reproduce audio o añade a la cola")
     async def play(self,ctx,*,busqueda:str):
         if not await self.require_music(ctx):return
+
+        # Discord exige confirmar un slash command en pocos segundos. Lo hacemos de forma
+        # efímera y eliminamos esa respuesta al terminar, para que /play no deje texto,
+        # tarjeta ni un segundo panel visible en #musica.
+        interaction=ctx.interaction
+        if interaction and not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
         vc=await self.ensure_voice(ctx)
-        if not vc:return
-        if ctx.interaction and not ctx.interaction.response.is_done():await ctx.defer()
-        try:item=await self.resolve(busqueda)
+        if not vc:
+            if interaction:
+                try:await interaction.delete_original_response()
+                except (discord.NotFound,discord.HTTPException):pass
+            return
+
+        try:
+            item=await self.resolve(busqueda)
         except Exception as e:
-            print("MUSIC RESOLVE:",repr(e));return await ctx.send("❌ No pude obtener audio de esa fuente.")
+            print("MUSIC RESOLVE:",repr(e))
+            if interaction:
+                try:await interaction.delete_original_response()
+                except (discord.NotFound,discord.HTTPException):pass
+            return await ctx.send("❌ No pude obtener audio de esa fuente.",delete_after=8)
+
         self.music_channels[ctx.guild.id]=ctx.channel
         self.queues[ctx.guild.id].append(item)
-        # /play no crea mensajes ni tarjetas adicionales: el único panel visual es el panel MUSIC fijo.
         if not vc.is_playing() and not vc.is_paused():await self.start_next(ctx.guild)
         else:await self.update_player(ctx.guild)
+
+        # Borra el acuse temporal del slash command. El panel MUSIC fijo es el único
+        # elemento musical que debe permanecer en el canal.
+        if interaction:
+            try:await interaction.delete_original_response()
+            except (discord.NotFound,discord.HTTPException):pass
 
     @commands.hybrid_command(description="Pausa la música")
     async def pause(self,ctx):
