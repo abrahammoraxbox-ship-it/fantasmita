@@ -173,7 +173,11 @@ async def ensure_panel(bot,channel,key,embed,view=None):
                 msg=await old_channel.fetch_message(row[1])
                 await msg.edit(content=marker,embed=embed,view=view)
                 return msg
-            except (discord.NotFound,discord.Forbidden,discord.HTTPException) as e:
+            except discord.NotFound:
+                # El mensaje guardado ya no existe: elimina la referencia obsoleta antes de reconstruir.
+                bot.db.execute("DELETE FROM panel_messages WHERE guild_id=? AND panel_key=?",
+                               (channel.guild.id,key))
+            except (discord.Forbidden,discord.HTTPException) as e:
                 print("PANEL STORED:",key,repr(e))
 
     # Migration fallback for panels created by older bot versions.

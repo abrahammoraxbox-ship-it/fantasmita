@@ -92,7 +92,7 @@ class Music(commands.Cog):
                 u=self._pick_audio_url(info)
                 if not u:raise RuntimeError("Sin formato de audio")
                 return {"url":u,"title":info.get("title") or "Audio","webpage":info.get("webpage_url") or info.get("original_url") or q,
-                        "duration":info.get("duration"),"query":q}
+                        "duration":info.get("duration"),"query":q,"http_headers":info.get("http_headers") or {}}
         return await loop.run_in_executor(None,work)
 
     async def ensure_voice(self,ctx):
@@ -157,12 +157,22 @@ class Music(commands.Cog):
             self.current.pop(guild.id,None)
             return await self.start_next(guild)
         try:
-            src=discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(item["url"],executable=imageio_ffmpeg.get_ffmpeg_exe(),**FFMPEG_OPTS),volume=self.volumes[guild.id])
+            # yt-dlp entrega cabeceras que algunos CDN (incluido YouTube) exigen también a FFmpeg.
+            headers=item.get("http_headers") or {}
+            header_blob="".join(f"{k}: {v}\r\n" for k,v in headers.items() if v)
+            before="-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+            if header_blob:
+                safe_headers=header_blob.replace('"','\\"')
+                before += f' -headers "{safe_headers}"'
+            ffmpeg=discord.FFmpegPCMAudio(
+                item["url"],executable=imageio_ffmpeg.get_ffmpeg_exe(),
+                before_options=before,options="-vn -loglevel warning")
+            src=discord.PCMVolumeTransformer(ffmpeg,volume=self.volumes[guild.id])
         except Exception as e:
             print("MUSIC SOURCE:",repr(e))
             ch=self.music_channels.get(guild.id)
             if ch:
-                try:await ch.send("⚠️ FFmpeg no pudo abrir esa pista. La salto sin detener Fantasmita.",delete_after=12)
+                try:await ch.send("⚠️ FFmpeg no pudo preparar esa pista. La salto sin detener Fantasmita.",delete_after=12)
                 except discord.HTTPException:pass
             self.current.pop(guild.id,None);return await self.start_next(guild)
         loop=asyncio.get_running_loop()
@@ -170,7 +180,19 @@ class Music(commands.Cog):
             if err:print("MUSIC PLAYER:",repr(err))
             fut=asyncio.run_coroutine_threadsafe(self.start_next(guild),loop)
             fut.add_done_callback(lambda f: print("MUSIC NEXT:",repr(f.exception())) if f.exception() else None)
-        vc.play(src,after=after)
+        try:
+            vc.play(src,after=after)
+            print(f"MUSIC PLAYING: {item.get('title','Audio')} | voice={vc.channel}")
+        except Exception as e:
+            print("MUSIC PLAY START:",repr(e))
+            try:src.cleanup()
+            except Exception:pass
+            ch=self.music_channels.get(guild.id)
+            if ch:
+                try:await ch.send("⚠️ No pude iniciar el audio en Discord. Revisa la consola: MUSIC PLAY START.",delete_after=12)
+                except discord.HTTPException:pass
+            self.current.pop(guild.id,None)
+            return await self.start_next(guild)
 
     async def change_volume(self,guild,delta):
         v=max(0.1,min(1.0,self.volumes[guild.id]+delta/100));self.volumes[guild.id]=v

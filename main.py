@@ -112,6 +112,9 @@ async def on_raw_message_delete(payload):
     g=bot.get_guild(payload.guild_id)
     if not g:return
     print(f"♻️ Panel persistente eliminado ({row[0]}). Reparando...")
+    # Borra primero el ID muerto; así ensure_panel crea/encuentra el reemplazo sin consultar 404 repetidamente.
+    bot.db.execute("DELETE FROM panel_messages WHERE guild_id=? AND message_id=?",
+                   (payload.guild_id,payload.message_id))
     try:
         await configure(g)
     except Exception:
