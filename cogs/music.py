@@ -8,43 +8,8 @@ YDL_OPTS={"format":"bestaudio/best","quiet":True,"no_warnings":True,"noplaylist"
 FFMPEG_OPTS={"before_options":"-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5","options":"-vn"}
 URL_RE=re.compile(r"^https?://",re.I)
 
-class PlayerView(discord.ui.View):
-    def __init__(self,cog,guild_id):
-        super().__init__(timeout=None);self.cog=cog;self.guild_id=guild_id
-    async def interaction_check(self,i):
-        if not i.guild or i.guild.id!=self.guild_id:return False
-        if i.channel.name!="musica":
-            await i.response.send_message("🎵 Los controles funcionan solo en #musica.",ephemeral=True);return False
-        vc=i.guild.voice_client
-        if not i.user.voice or not vc or i.user.voice.channel!=vc.channel:
-            await i.response.send_message("🎧 Debes estar en el mismo canal de voz que Fantasmita.",ephemeral=True);return False
-        return True
-    @discord.ui.button(label="Pausa",emoji="⏸️",style=discord.ButtonStyle.secondary)
-    async def pause(self,i,b):
-        vc=i.guild.voice_client
-        if vc and vc.is_playing():vc.pause();b.label="Continuar";b.emoji="▶️"
-        elif vc and vc.is_paused():vc.resume();b.label="Pausa";b.emoji="⏸️"
-        else:return await i.response.send_message("No hay música activa.",ephemeral=True)
-        await i.response.edit_message(view=self)
-    @discord.ui.button(label="Siguiente",emoji="⏭️",style=discord.ButtonStyle.primary)
-    async def skip(self,i,b):
-        vc=i.guild.voice_client
-        if vc and (vc.is_playing() or vc.is_paused()):
-            await i.response.send_message("⏭️ Siguiente.",ephemeral=True);vc.stop()
-        else:await i.response.send_message("No hay pista activa.",ephemeral=True)
-    @discord.ui.button(label="Cola",emoji="📜",style=discord.ButtonStyle.secondary)
-    async def queue(self,i,b):
-        await i.response.send_message(self.cog.queue_text(i.guild.id),ephemeral=True)
-    @discord.ui.button(label="Vol -",emoji="🔉",style=discord.ButtonStyle.secondary)
-    async def voldown(self,i,b):
-        await self.cog.change_volume(i.guild,-10);await i.response.send_message(f"🔉 {round(self.cog.volumes[i.guild.id]*100)}%",ephemeral=True)
-    @discord.ui.button(label="Vol +",emoji="🔊",style=discord.ButtonStyle.secondary)
-    async def volup(self,i,b):
-        await self.cog.change_volume(i.guild,10);await i.response.send_message(f"🔊 {round(self.cog.volumes[i.guild.id]*100)}%",ephemeral=True)
-    @discord.ui.button(label="Parar",emoji="⏹️",style=discord.ButtonStyle.danger)
-    async def stop(self,i,b):
-        await i.response.send_message("⏹️ Reproductor detenido.",ephemeral=True)
-        await self.cog.stop_guild(i.guild,delete_player=True)
+# PlayerView dinámico desactivado para evitar un segundo sistema de controles.
+# Se conserva únicamente MusicControlView persistente de views.py.
 
 class Music(commands.Cog):
     def __init__(self,b):
@@ -114,27 +79,9 @@ class Music(commands.Cog):
         return "\n".join(lines) if lines else "📭 Cola vacía."
 
     async def update_player(self,guild):
-        ch=self.music_channels.get(guild.id)
-        if not ch:return
-        cur=self.current.get(guild.id)
-        if not cur:
-            old=self.player_messages.pop(guild.id,None)
-            if old:
-                try:await old.delete()
-                except discord.HTTPException:pass
-            return
-        q=list(self.queues[guild.id])
-        dur=cur.get("duration");duration=f"{int(dur)//60}:{int(dur)%60:02d}" if dur else "Directo/desconocido"
-        desc=f"### ▶️ {cur['title']}\n⏱️ {duration}\n🔊 {round(self.volumes[guild.id]*100)}%"
-        if q:desc+=f"\n\n**Siguiente:** {q[0]['title']}\n📜 En cola: {len(q)}"
-        embed=discord.Embed(title="🎵 FANTASMITA PLAYER",description=desc,colour=0xA855F7)
-        embed.url=cur["webpage"]
-        old=self.player_messages.get(guild.id)
-        try:
-            if old:await old.edit(embed=embed,view=PlayerView(self,guild.id))
-            else:self.player_messages[guild.id]=await ch.send(embed=embed,view=PlayerView(self,guild.id))
-        except (discord.NotFound,discord.HTTPException):
-            self.player_messages[guild.id]=await ch.send(embed=embed,view=PlayerView(self,guild.id))
+        # Panel dinámico desactivado: el servidor ya tiene MusicControlView persistente.
+        # Mantener este método permite conservar cola, volumen y comandos sin duplicar paneles.
+        return
 
     async def start_next(self,guild):
         vc=guild.voice_client
