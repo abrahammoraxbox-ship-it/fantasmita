@@ -308,7 +308,7 @@ async def ensure_structure(bot,g):
                "5. Juego limpio.\n6. Respeta las decisiones del staff.")
         bot.db.execute("UPDATE guild_config SET rules=? WHERE guild_id=?",(rules,g.id))
 
-    from views import TermsView,AccessRequestView,TicketView,VoiceControlView,MusicControlView
+    from views import TermsView,AccessRequestView,TicketView,VoiceControlView
     await ensure_panel(bot,access,"TERMS",discord.Embed(
         title="📜 TÉRMINOS Y CONDICIONES",
         description=rules+"\n\nAl pulsar **Aceptar términos y continuar**, confirmas que aceptas estas reglas. Después podrás solicitar acceso.",
@@ -317,15 +317,13 @@ async def ensure_structure(bot,g):
         title="👻 SOLICITAR ACCESO",
         description="Después de aceptar los términos, pulsa el botón para enviar tu solicitud al fundador.",
         colour=0x7C3AED),AccessRequestView(bot))
-    # Panel musical fijo en #musica. ensure_panel evita duplicados y lo reconstruye si falta.
+    # Panel musical fijo e informativo en #musica: SIN botones ni vista interactiva.
     await ensure_panel(bot,music_ch,"MUSIC",discord.Embed(
         title="🎵 FANTASMITA • CENTRO MUSICAL",
         description=(
             "Entra a un canal de voz y usa **`/play`** en este canal.\n"
-            "Puedes pegar un enlace de YouTube o escribir el nombre de una canción.\n\n"
-            "**Controles:** ⏸️ Pausa • ▶️ Continuar • ⏭️ Saltar • ⏹️ Detener\n"
-            "Este es el único panel musical permanente."
-        ),colour=0xA855F7),MusicControlView(bot))
+            "Puedes pegar un enlace de YouTube o escribir el nombre de una canción."
+        ),colour=0xA855F7),view=None)
 
     await ensure_panel(bot,help_ch,"ROLES",discord.Embed(
         title="🎭 ROLES • GUÍA RÁPIDA",
