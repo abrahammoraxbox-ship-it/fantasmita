@@ -11,7 +11,7 @@ def run():
     views=open(os.path.join(base,"views.py"),encoding="utf-8").read()
     required=["terms_acceptance","weekly_missions","achievements","clans","lfg","tournaments","social_links","seasons","panel_messages"]
     for x in required:assert x in core,x
-    assert "SETUP_VERSION=13" in core
+    assert "SETUP_VERSION=14" in core
     assert "cogs.music" in main and "cogs.progression" in main and "cogs.competitive" in main
     assert "i.user.id==i.guild.owner_id" in views
     assert 'row and row[0]=="approved"' in views

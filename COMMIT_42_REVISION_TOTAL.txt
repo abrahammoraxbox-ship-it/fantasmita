@@ -1,0 +1,11 @@
+Commit 42 - Revisión total del repo
+- SCHEMA=14 / SETUP_VERSION=14.
+- Revisión completa del código actual.
+- Refuerzo final de 🚪 ACCESO a nivel de categoría y canal.
+- Diagnóstico de visibilidad para @everyone y Pendiente.
+- Orden estable de categorías y canales.
+- Staff restringido a Administrador, Guardián y propietario real.
+- Fundador sigue restringido al propietario real.
+- Mantiene sincronización Pendiente/Gamer.
+- Mantiene limpieza segura de duplicados.
+- Mantiene música, tickets, voz, economía, progresión, eventos e integraciones.

@@ -1,6 +1,6 @@
 import os, sqlite3, time, discord
-SCHEMA=13
-SETUP_VERSION=13
+SCHEMA=14
+SETUP_VERSION=14
 
 class Database:
     def __init__(self,path):
@@ -328,10 +328,13 @@ async def ensure_structure(bot,g):
     }
     staff={
         everyone:discord.PermissionOverwrite(view_channel=False),
-        founder:discord.PermissionOverwrite(view_channel=True,send_messages=True),
         admin:discord.PermissionOverwrite(view_channel=True,send_messages=True),
         guard:discord.PermissionOverwrite(view_channel=True,send_messages=True)
     }
+    if g.owner:
+        staff[g.owner]=discord.PermissionOverwrite(
+            view_channel=True,send_messages=True,read_message_history=True
+        )
     owner_only={
         everyone:discord.PermissionOverwrite(view_channel=False)
     }
@@ -441,13 +444,11 @@ async def ensure_structure(bot,g):
 
     # Orden determinista: aplica las posiciones finales en una sola pasada.
     category_order=[access_cat,community,voice_cat,support,staff_cat,founder_cat]
-    try:
-        await g.edit_channel_positions(
-            positions={cat:i for i,cat in enumerate(category_order)},
-            reason="Eco: orden final de categorías"
-        )
-    except Exception as e:
-        print("CATEGORY ORDER FINAL:",repr(e))
+    for pos,cat in enumerate(category_order):
+        try:
+            await cat.edit(position=pos,reason="Eco: orden final de categorías")
+        except (discord.Forbidden,discord.HTTPException) as e:
+            print("CATEGORY ORDER FINAL:",cat.name,repr(e))
 
     channel_groups=[
         (access_cat,["bienvenida-y-acceso"]),
@@ -469,11 +470,20 @@ async def ensure_structure(bot,g):
             pos+=1
 
     await sync_member_access(bot,g,pending,gamer)
+
+    # Refuerzo final de onboarding: no depende de permisos heredados.
+    try:
+        await access_cat.edit(overwrites=access_category_overwrites,reason="Eco: forzar visibilidad final de ACCESO")
+        await access.edit(overwrites=gate,reason="Eco: forzar visibilidad final de bienvenida")
+    except (discord.Forbidden,discord.HTTPException) as e:
+        print("ACCESS FINAL SYNC:",repr(e))
+
     removed=await cleanup_managed_duplicates(bot,g)
     everyone_access=access.permissions_for(g.default_role).view_channel
+    pending_access=access.permissions_for(pending).view_channel
     print(
         f"✅ AUTOSETUP V{SETUP_VERSION}: {g.name} organizado | "
         f"duplicados eliminados={removed} | permisos sincronizados | "
-        f"ACCESO @everyone={everyone_access}"
+        f"ACCESO @everyone={everyone_access} | Pendiente={pending_access}"
     )
 
