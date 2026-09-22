@@ -1,4 +1,11 @@
 import os, asyncio, traceback
+
+# Wispbyte instala scripts de paquetes pip --prefix .local aquí.
+# Añadirlo al PATH permite que yt-dlp encuentre el Deno instalado por PyPI.
+_LOCAL_BIN = os.path.join(os.path.expanduser("~"), ".local", "bin")
+if os.path.isdir(_LOCAL_BIN):
+    os.environ["PATH"] = _LOCAL_BIN + os.pathsep + os.environ.get("PATH", "")
+
 from selftest import run as run_selftest
 run_selftest()
 

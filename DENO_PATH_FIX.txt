@@ -1,0 +1,8 @@
+FANTASMITA - FIX DENO PATH / WISPBYTE
+
+- Conserva yt-dlp[default,deno]>=2026.8.19.
+- Wispbyte instala con pip --prefix .local, así que Deno queda normalmente en .local/bin.
+- main.py añade ~/.local/bin al PATH antes de cargar el bot.
+- cogs/music.py detecta el binario Deno y entrega su ruta explícita a yt-dlp mediante js_runtimes.
+- El diagnóstico muestra Deno path y si yt-dlp quedó configurado para usarlo.
+- No modifica roles, economía, XP, tickets, seguridad ni otros módulos.

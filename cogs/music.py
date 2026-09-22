@@ -1,10 +1,33 @@
-import asyncio, collections, re, sys, time, math, struct, discord, shutil, subprocess, importlib.metadata
+import asyncio, collections, re, sys, time, math, struct, discord, shutil, subprocess, importlib.metadata, os
 from urllib.parse import urlparse, parse_qs
 from discord.ext import commands
 import yt_dlp, imageio_ffmpeg
 
+# Wispbyte usa `pip --prefix .local`, por lo que los ejecutables Python quedan
+# normalmente en /home/container/.local/bin, ruta que no viene en PATH.
+_LOCAL_BIN = os.path.join(os.path.expanduser("~"), ".local", "bin")
+if os.path.isdir(_LOCAL_BIN) and _LOCAL_BIN not in os.environ.get("PATH", "").split(os.pathsep):
+    os.environ["PATH"] = _LOCAL_BIN + os.pathsep + os.environ.get("PATH", "")
+
+def _find_deno():
+    candidates = [
+        shutil.which("deno"),
+        os.path.join(_LOCAL_BIN, "deno"),
+        "/home/container/.local/bin/deno",
+    ]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return os.path.realpath(candidate)
+    return None
+
+DENO_PATH = _find_deno()
+
 YDL_OPTS={"format":"bestaudio/best","quiet":True,"no_warnings":True,"noplaylist":True,
           "extract_flat":False,"skip_download":True}
+# yt-dlp acepta una ruta explícita al runtime desde su API Python. Esto evita
+# depender del PATH del contenedor de Wispbyte.
+if DENO_PATH:
+    YDL_OPTS["js_runtimes"] = {"deno": {"path": DENO_PATH}}
 FFMPEG_OPTS={"before_options":"-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5","options":"-vn"}
 URL_RE=re.compile(r"^https?://",re.I)
 
@@ -62,7 +85,13 @@ class Music(commands.Cog):
         print(f"FFmpeg: {ffmpeg_state}")
         print(f"yt-dlp: {ytdlp_ver}")
         print(f"yt-dlp-ejs: {ejs_ver}")
-        print(f"Deno: {self._runtime_version('deno')}")
+        if DENO_PATH:
+            print(f"Deno: {self._runtime_version(DENO_PATH)}")
+            print(f"Deno path: {DENO_PATH}")
+            print("yt-dlp JS runtime: deno (ruta explícita) OK")
+        else:
+            print("Deno: NO")
+            print("yt-dlp JS runtime: deno NO")
         print(f"Node: {self._runtime_version('node')}")
         print(f"Discord Voice/PyNaCl: {'OK' if discord.opus.is_loaded() or shutil.which('ffmpeg') or True else 'REVISAR'}")
         print("="*78)
