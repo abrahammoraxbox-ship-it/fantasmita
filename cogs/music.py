@@ -60,6 +60,7 @@ class Music(commands.Cog):
         self.b=b;self.queues=collections.defaultdict(collections.deque);self.current={}
         self.volumes=collections.defaultdict(lambda:0.5);self.music_channels={};self._ffmpeg_logs={}
         self.voice_channels={};self.track_started={};self.intentional_stop=set()
+        self._watchdogs={};self._track_tokens=collections.defaultdict(int)
         self._print_music_diagnostic()
 
     @staticmethod
@@ -88,7 +89,7 @@ class Music(commands.Cog):
             ffmpeg_state=f"OK ({ffmpeg})"
         except Exception as e:
             ffmpeg_state=f"ERROR {e!r}"
-        print("MUSIC CODE VERSION: hybrid-fast-v5")
+        print("MUSIC CODE VERSION: hybrid-watchdog-v6")
         print("="*78)
         print("🎵 MUSIC DIAGNOSTIC")
         print(f"FFmpeg: {ffmpeg_state}")
@@ -355,6 +356,90 @@ class Music(commands.Cog):
         read_log(ytdlp_path,ytdlp_file,"MUSIC YTDLP")
         read_log(ffmpeg_path,ffmpeg_file,"MUSIC FFMPEG")
 
+    @staticmethod
+    def _remaining_seconds(item,elapsed):
+        duration=item.get("duration")
+        if not isinstance(duration,(int,float)) or duration<=0:
+            return None
+        return max(0.0,float(duration)-float(elapsed))
+
+    def _cancel_watchdog(self,guild_id):
+        task=self._watchdogs.pop(guild_id,None)
+        if task and not task.done():
+            task.cancel()
+
+    async def _watch_track(self,guild,item,token):
+        """Supervisa Discord Voice mientras una pista debería seguir sonando."""
+        gid=guild.id
+        try:
+            while True:
+                await asyncio.sleep(10)
+                if self._track_tokens.get(gid)!=token:return
+                current=self.current.get(gid)
+                if current is not item:return
+                vc=guild.voice_client
+                started=self.track_started.get(gid)
+                elapsed=max(0.0,time.monotonic()-started) if started else 0.0
+                remaining=self._remaining_seconds(item,elapsed)
+                print(
+                    f"MUSIC WATCHDOG | title={item.get('title','Audio')} | elapsed={elapsed:.1f}s | "
+                    f"remaining={remaining if remaining is not None else 'unknown'} | "
+                    f"connected={bool(vc and vc.is_connected())} | "
+                    f"playing={bool(vc and vc.is_playing())} | paused={bool(vc and vc.is_paused())}"
+                )
+                if gid in self.intentional_stop:
+                    return
+                # Si Discord Voice se cayó o dejó de reproducir cuando aún faltaba bastante,
+                # fuerza la ruta de recuperación en vez de asumir que terminó normalmente.
+                should_still_play = remaining is None or remaining > 12
+                if should_still_play and (not vc or not vc.is_connected() or (not vc.is_playing() and not vc.is_paused())):
+                    print("MUSIC WATCHDOG RECOVERY TRIGGER")
+                    await self._recover_track(guild,item,"watchdog")
+                    return
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            print("MUSIC WATCHDOG ERROR:",repr(e))
+
+    async def _recover_track(self,guild,item,reason):
+        gid=guild.id
+        if gid in self.intentional_stop:
+            return False
+        retries=int(item.get("retry_count") or 0)
+        if retries>=2:
+            print(f"MUSIC RECOVERY LIMIT: {item.get('title','Audio')} | reason={reason}")
+            return False
+        item["retry_count"]=retries+1
+        item["force_pipe"]=True
+        print(f"MUSIC AUTO RECOVERY: intento {item['retry_count']} | reason={reason} | {item.get('title','Audio')}")
+        try:
+            fresh=await self.resolve(item.get("webpage") or item.get("query"))
+            fresh["retry_count"]=item["retry_count"]
+            fresh["force_pipe"]=True
+            item=fresh
+        except Exception as e:
+            print("MUSIC RECOVERY RESOLVE:",repr(e))
+
+        vc=guild.voice_client
+        if not vc or not vc.is_connected():
+            channel=guild.get_channel(self.voice_channels.get(gid,0))
+            if channel:
+                try:
+                    if vc:
+                        try:await vc.disconnect(force=True)
+                        except Exception:pass
+                    await channel.connect(reconnect=True)
+                    print(f"MUSIC VOICE RECOVERED: {channel}")
+                except Exception as e:
+                    print("MUSIC VOICE RECOVERY:",repr(e))
+                    return False
+
+        self.current.pop(gid,None)
+        self.queues[gid].appendleft(item)
+        await asyncio.sleep(0.8)
+        await self.start_next(guild)
+        return True
+
     async def start_next(self,guild):
         vc=guild.voice_client
         if not vc or not vc.is_connected():return
@@ -420,6 +505,10 @@ class Music(commands.Cog):
             fut.add_done_callback(done)
         try:
             vc.play(src,after=after)
+            self._track_tokens[guild.id]+=1
+            token=self._track_tokens[guild.id]
+            self._cancel_watchdog(guild.id)
+            self._watchdogs[guild.id]=asyncio.create_task(self._watch_track(guild,item,token))
             print(f"MUSIC PLAYING: {item.get('title','Audio')} | voice={vc.channel}")
             await asyncio.sleep(0.35)
             print(
@@ -441,60 +530,36 @@ class Music(commands.Cog):
             return await self.start_next(guild)
 
     async def _after_track(self,guild,item,err):
+        gid=guild.id
+        self._cancel_watchdog(gid)
         vc=guild.voice_client
         title=item.get("title","Audio")
-        elapsed=max(0.0,time.monotonic()-self.track_started.pop(guild.id,time.monotonic()))
+        elapsed=max(0.0,time.monotonic()-self.track_started.pop(gid,time.monotonic()))
         duration=item.get("duration")
-        intentional=guild.id in self.intentional_stop
-        if intentional:self.intentional_stop.discard(guild.id)
+        remaining=self._remaining_seconds(item,elapsed)
+        intentional=gid in self.intentional_stop
+        if intentional:self.intentional_stop.discard(gid)
+
         print(
             f"MUSIC FINISHED | title={title} | error={err!r} | elapsed={elapsed:.1f}s | "
+            f"duration={duration!r} | remaining={remaining if remaining is not None else 'unknown'} | "
             f"connected={bool(vc and vc.is_connected())} | playing={bool(vc and vc.is_playing())}"
         )
-        self._dump_ffmpeg_log(guild.id)
+        self._dump_ffmpeg_log(gid)
 
-        # Un final demasiado temprano casi siempre significa stream/FFmpeg/voz cortado.
-        premature = (err is not None) or elapsed < 8.0
-        if isinstance(duration,(int,float)) and duration>15:
-            premature = premature or elapsed < min(15.0, max(8.0,duration*0.08))
+        # Considera caída prematura si todavía faltaba tiempo significativo de canción.
+        premature_by_duration = remaining is not None and remaining > 12
+        premature = (err is not None) or premature_by_duration or elapsed < 8.0
 
-        if not intentional and premature and int(item.get("retry_count") or 0) < 2:
-            item["retry_count"]=int(item.get("retry_count") or 0)+1
-            item["force_pipe"]=True
-            print(f"MUSIC AUTO RECOVERY: intento {item['retry_count']} | {title}")
-            # Refresca metadatos/URL para no reutilizar un enlace CDN muerto.
-            try:
-                fresh=await self.resolve(item.get("webpage") or item.get("query"))
-                fresh["retry_count"]=item["retry_count"]
-                fresh["force_pipe"]=True
-                item=fresh
-            except Exception as e:
-                print("MUSIC RECOVERY RESOLVE:",repr(e))
+        if not intentional and premature:
+            recovered=await self._recover_track(guild,item,"after_track")
+            if recovered:return
 
-            # Si Discord Voice cayó, intenta volver al último canal conocido.
-            vc=guild.voice_client
-            if not vc or not vc.is_connected():
-                channel=guild.get_channel(self.voice_channels.get(guild.id,0))
-                if channel:
-                    try:
-                        if vc:
-                            try:await vc.disconnect(force=True)
-                            except Exception:pass
-                        await channel.connect(reconnect=True)
-                        print(f"MUSIC VOICE RECOVERED: {channel}")
-                    except Exception as e:
-                        print("MUSIC VOICE RECOVERY:",repr(e))
-
-            self.current.pop(guild.id,None)
-            self.queues[guild.id].appendleft(item)
-            await asyncio.sleep(0.8)
-            return await self.start_next(guild)
-
-        current=self.current.get(guild.id)
+        current=self.current.get(gid)
         if current is item or current and current.get("webpage")==item.get("webpage"):
-            self.current.pop(guild.id,None)
+            self.current.pop(gid,None)
         await self.update_player(guild)
-        if self.queues[guild.id]:
+        if self.queues[gid]:
             await self.start_next(guild)
 
     async def change_volume(self,guild,delta):
@@ -506,6 +571,7 @@ class Music(commands.Cog):
     async def stop_guild(self,guild,delete_player=True):
         # Detener audio nunca toca el panel fijo de #musica.
         self.queues[guild.id].clear();self.current.pop(guild.id,None)
+        self._track_tokens[guild.id]+=1;self._cancel_watchdog(guild.id)
         vc=guild.voice_client
         self.intentional_stop.add(guild.id)
         if vc:await vc.disconnect(force=True)
@@ -589,7 +655,9 @@ class Music(commands.Cog):
         if not await self.require_music(ctx):return
         vc=ctx.guild.voice_client
         if vc and (vc.is_playing() or vc.is_paused()):
-            self.intentional_stop.add(ctx.guild.id);vc.stop();return await ctx.send("⏭️ Siguiente.",delete_after=4)
+            self.intentional_stop.add(ctx.guild.id)
+            self._track_tokens[ctx.guild.id]+=1;self._cancel_watchdog(ctx.guild.id)
+            vc.stop();return await ctx.send("⏭️ Siguiente.",delete_after=4)
         await ctx.send("No hay pista activa.",delete_after=4)
 
     @commands.hybrid_command(description="Muestra la cola")
@@ -621,6 +689,8 @@ class Music(commands.Cog):
             try:self._dump_ffmpeg_log(gid)
             except Exception:pass
         self.queues.clear();self.current.clear();self.music_channels.clear()
+        for gid in list(self._watchdogs):self._cancel_watchdog(gid)
         self.voice_channels.clear();self.track_started.clear();self.intentional_stop.clear()
+        self._track_tokens.clear()
 
 async def setup(b):await b.add_cog(Music(b))

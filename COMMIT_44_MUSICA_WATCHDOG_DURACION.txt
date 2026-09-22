@@ -1,0 +1,13 @@
+Commit 44 - Música watchdog por duración
+Base: cuarentaytres commit.
+
+- MUSIC CODE VERSION: hybrid-watchdog-v6.
+- Detecta cortes a mitad de canción comparando elapsed vs duration.
+- Si faltan más de 12 segundos y el audio termina, activa recuperación.
+- Watchdog cada 10 s para comprobar voice connected/playing/paused.
+- Si Discord Voice cae mientras la pista debería seguir, intenta reconexión.
+- Refresca la URL de YouTube antes del reintento.
+- Reintenta hasta 2 veces por pista.
+- Stop/Skip cancelan watchdog para evitar reanudaciones no deseadas.
+- Mantiene la ruta FAST y usa PIPE como recuperación robusta.
+- No modifica roles, canales, acceso, tickets ni demás sistemas.
