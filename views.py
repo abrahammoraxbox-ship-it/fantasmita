@@ -240,19 +240,21 @@ class VoiceControlView(discord.ui.View):
 
 
 class OwnerPanel(discord.ui.View):
-    def __init__(self,owner):
-        # Sin caducidad mientras el bot permanezca encendido.
+    def __init__(self,owner=None):
+        # Vista persistente: sigue funcionando después de reiniciar Fantasmita.
         super().__init__(timeout=None)
-        self.owner=int(owner)
+        self.owner=int(owner) if owner is not None else None
 
     async def interaction_check(self,i):
-        if i.user.id!=self.owner:
+        # La autoridad real siempre es el propietario actual del servidor.
+        owner_id=i.guild.owner_id if i.guild else self.owner
+        if i.user.id!=owner_id:
             await i.response.send_message("🔒 Solo el propietario.",ephemeral=True,delete_after=4)
             return False
         return True
 
     def key(self,i):
-        return (i.guild.id,self.owner)
+        return (i.guild.id,i.guild.owner_id)
 
     def state(self,i):
         return OWNER_PANEL_STATE.setdefault(self.key(i),{"member_id":None,"role_id":None})
@@ -287,9 +289,7 @@ class OwnerPanel(discord.ui.View):
         return discord.Embed(title="👑 PANEL DE ROLES",description=text,colour=0x8B5CF6)
 
     async def refresh(self,i,status=None,autoclear=False):
-        # Confirmamos la interacción de inmediato para evitar
-        # “Fantasmita no ha respondido a tiempo”. Después editamos
-        # exactamente el mismo mensaje del panel.
+        # Confirmar primero la interacción evita el aviso de timeout de Discord.
         if not i.response.is_done():
             await i.response.defer()
         await i.edit_original_response(embed=self.make_embed(i,status),view=self)
@@ -301,21 +301,18 @@ class OwnerPanel(discord.ui.View):
                 except (discord.NotFound,discord.Forbidden,discord.HTTPException):pass
             asyncio.create_task(clear_status())
 
-    @discord.ui.select(cls=discord.ui.UserSelect,placeholder="Seleccionar usuario",row=0)
+    @discord.ui.select(cls=discord.ui.UserSelect,placeholder="Seleccionar usuario",row=0,custom_id="eco:owner:member")
     async def us(self,i,s):
         self.state(i)["member_id"]=s.values[0].id
         await self.refresh(i)
 
-    @discord.ui.select(cls=discord.ui.RoleSelect,placeholder="Seleccionar rol",row=1)
+    @discord.ui.select(cls=discord.ui.RoleSelect,placeholder="Seleccionar rol",row=1,custom_id="eco:owner:role")
     async def ro(self,i,s):
         self.state(i)["role_id"]=s.values[0].id
         await self.refresh(i)
 
-    @discord.ui.button(label="DAR",style=discord.ButtonStyle.success,row=2)
+    @discord.ui.button(label="DAR",style=discord.ButtonStyle.success,row=2,custom_id="eco:owner:add")
     async def add(self,i,b):
-        # Discord exige confirmar la interacción en pocos segundos.
-        if not i.response.is_done():
-            await i.response.defer()
         member,role=self.resolve(i)
         if not member or not self.role_allowed(i,role):
             return await self.refresh(i,"⚠️ Selecciona usuario y un rol administrable. Fundador/Pendiente y roles por encima del bot están protegidos.")
@@ -336,11 +333,8 @@ class OwnerPanel(discord.ui.View):
         except discord.HTTPException as e:
             print("OWNER ROLE ADD:",repr(e));await self.refresh(i,"❌ Discord no permitió asignar el rol.")
 
-    @discord.ui.button(label="QUITAR",style=discord.ButtonStyle.danger,row=2)
+    @discord.ui.button(label="QUITAR",style=discord.ButtonStyle.danger,row=2,custom_id="eco:owner:remove")
     async def rem(self,i,b):
-        # Discord exige confirmar la interacción en pocos segundos.
-        if not i.response.is_done():
-            await i.response.defer()
         member,role=self.resolve(i)
         if not member or not self.role_allowed(i,role):
             return await self.refresh(i,"⚠️ Selecciona usuario y un rol administrable. Fundador/Pendiente y roles por encima del bot están protegidos.")
