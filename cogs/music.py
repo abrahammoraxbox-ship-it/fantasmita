@@ -239,13 +239,17 @@ class Music(commands.Cog):
                 self.current.pop(guild.id,None)
                 return await self.start_next(guild)
         try:
-            # yt-dlp entrega cabeceras que algunos CDN (incluido YouTube) exigen también a FFmpeg.
+            # YouTube/CDN puede requerir User-Agent/Referer. Se pasan como opciones
+            # nativas de FFmpeg para evitar que un bloque -headers mal escapado cierre
+            # la fuente inmediatamente.
             headers=item.get("http_headers") or {}
-            header_blob="".join(f"{k}: {v}\r\n" for k,v in headers.items() if v)
             before="-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
-            if header_blob:
-                safe_headers=header_blob.replace('"','\\"')
-                before += f' -headers "{safe_headers}"'
+            ua=headers.get("User-Agent") or headers.get("user-agent")
+            ref=headers.get("Referer") or headers.get("referer")
+            if ua:
+                before += f' -user_agent "{str(ua).replace(chr(34), chr(39))}"'
+            if ref:
+                before += f' -referer "{str(ref).replace(chr(34), chr(39))}"'
             ffmpeg_path=imageio_ffmpeg.get_ffmpeg_exe()
             print(f"MUSIC FFMPEG: {ffmpeg_path}")
             ffmpeg=discord.FFmpegPCMAudio(

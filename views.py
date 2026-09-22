@@ -363,3 +363,47 @@ class OwnerPanel(discord.ui.View):
         except discord.HTTPException as e:
             print("OWNER ROLE REMOVE:",repr(e));await self.refresh(i,"❌ Discord no permitió retirar el rol.")
 
+
+
+class MusicControlView(discord.ui.View):
+    def __init__(self,bot):
+        super().__init__(timeout=None)
+        self.bot=bot
+
+    def music(self):
+        return self.bot.get_cog("Music")
+
+    @discord.ui.button(label="Pausa/Reanudar",emoji="⏯️",style=discord.ButtonStyle.secondary,custom_id="eco:music:toggle")
+    async def toggle(self,i,b):
+        cog=self.music();vc=i.guild.voice_client
+        if not cog:return await i.response.send_message("⚠️ Música no disponible.",ephemeral=True)
+        if vc and vc.is_paused():
+            vc.resume();await cog.update_player(i.guild);return await i.response.send_message("▶️ Reanudado.",ephemeral=True)
+        if vc and vc.is_playing():
+            vc.pause();await cog.update_player(i.guild);return await i.response.send_message("⏸️ Pausado.",ephemeral=True)
+        await i.response.send_message("ℹ️ No hay una pista activa.",ephemeral=True)
+
+    @discord.ui.button(label="Saltar",emoji="⏭️",style=discord.ButtonStyle.primary,custom_id="eco:music:skip")
+    async def skip(self,i,b):
+        vc=i.guild.voice_client
+        if vc and (vc.is_playing() or vc.is_paused()):
+            vc.stop();return await i.response.send_message("⏭️ Pista saltada.",ephemeral=True)
+        await i.response.send_message("ℹ️ No hay una pista activa.",ephemeral=True)
+
+    @discord.ui.button(label="Vol -",emoji="🔉",style=discord.ButtonStyle.secondary,custom_id="eco:music:voldown")
+    async def voldown(self,i,b):
+        cog=self.music()
+        if not cog:return await i.response.send_message("⚠️ Música no disponible.",ephemeral=True)
+        await cog.change_volume(i.guild,-10);await i.response.send_message(f"🔉 Volumen: {round(cog.volumes[i.guild.id]*100)}%",ephemeral=True)
+
+    @discord.ui.button(label="Vol +",emoji="🔊",style=discord.ButtonStyle.secondary,custom_id="eco:music:volup")
+    async def volup(self,i,b):
+        cog=self.music()
+        if not cog:return await i.response.send_message("⚠️ Música no disponible.",ephemeral=True)
+        await cog.change_volume(i.guild,10);await i.response.send_message(f"🔊 Volumen: {round(cog.volumes[i.guild.id]*100)}%",ephemeral=True)
+
+    @discord.ui.button(label="Detener",emoji="⏹️",style=discord.ButtonStyle.danger,custom_id="eco:music:stop")
+    async def stop(self,i,b):
+        cog=self.music()
+        if not cog:return await i.response.send_message("⚠️ Música no disponible.",ephemeral=True)
+        await cog.stop_guild(i.guild,True);await cog.update_player(i.guild);await i.response.send_message("⏹️ Música detenida.",ephemeral=True)

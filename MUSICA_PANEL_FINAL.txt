@@ -1,0 +1,1 @@
+Fix FFmpeg + panel MUSIC persistente con botones. No modifica roles, economia, XP, tickets ni seguridad.
