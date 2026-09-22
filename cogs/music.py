@@ -59,6 +59,7 @@ class Music(commands.Cog):
     def __init__(self,b):
         self.b=b;self.queues=collections.defaultdict(collections.deque);self.current={}
         self.volumes=collections.defaultdict(lambda:0.5);self.music_channels={};self._ffmpeg_logs={}
+        self.voice_channels={};self.track_started={};self.intentional_stop=set()
         self._print_music_diagnostic()
 
     @staticmethod
@@ -87,7 +88,7 @@ class Music(commands.Cog):
             ffmpeg_state=f"OK ({ffmpeg})"
         except Exception as e:
             ffmpeg_state=f"ERROR {e!r}"
-        print("MUSIC CODE VERSION: ffmpeg-pipeline-v4")
+        print("MUSIC CODE VERSION: hybrid-fast-v5")
         print("="*78)
         print("🎵 MUSIC DIAGNOSTIC")
         print(f"FFmpeg: {ffmpeg_state}")
@@ -157,9 +158,12 @@ class Music(commands.Cog):
                 return {
                     "title":info.get("title") or "Audio",
                     "webpage":webpage,
+                    "audio_url":self._pick_audio_url(info),
                     "duration":info.get("duration"),
                     "query":q,
                     "resolved_at":time.time(),
+                    "retry_count":0,
+                    "force_pipe":False,
                 }
         return await loop.run_in_executor(None,work)
 
@@ -168,8 +172,9 @@ class Music(commands.Cog):
             await ctx.send("🎧 Entra primero a un canal de voz.");return None
         target=ctx.author.voice.channel;vc=ctx.guild.voice_client
         try:
-            if not vc:vc=await target.connect()
+            if not vc:vc=await target.connect(reconnect=True)
             elif vc.channel!=target:await vc.move_to(target)
+            self.voice_channels[ctx.guild.id]=target.id
             return vc
         except Exception as e:
             print("MUSIC VOICE:",repr(e));await ctx.send("❌ No pude entrar al canal de voz.");return None
@@ -233,6 +238,26 @@ class Music(commands.Cog):
             return
         except (discord.Forbidden,discord.HTTPException) as e:
             print("MUSIC PANEL:",repr(e))
+
+    def _build_fast_source(self,guild_id,item):
+        """Ruta rápida: reutiliza la URL de audio obtenida por la primera extracción."""
+        audio_url=item.get("audio_url")
+        if not audio_url:
+            raise RuntimeError("Sin URL directa de audio")
+        ffmpeg_path=imageio_ffmpeg.get_ffmpeg_exe()
+        ffmpeg_log_path=f"/tmp/fantasmita_ffmpeg_fast_{guild_id}.log"
+        ffmpeg_log=open(ffmpeg_log_path,"w+b")
+        print(f"MUSIC FAST SOURCE: URL directa -> FFmpeg -> Discord | {item.get('title','Audio')}")
+        ffmpeg=discord.FFmpegPCMAudio(
+            audio_url,
+            executable=ffmpeg_path,
+            before_options="-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+            options="-vn -loglevel warning -f s16le -ar 48000 -ac 2",
+            stderr=ffmpeg_log,
+        )
+        src=discord.PCMVolumeTransformer(ffmpeg,volume=self.volumes[guild_id])
+        self._ffmpeg_logs[guild_id]=(ffmpeg_log_path,ffmpeg_log,None,None,None)
+        return src
 
     def _build_piped_source(self,guild_id,item):
         """
@@ -301,7 +326,7 @@ class Music(commands.Cog):
         ffmpeg_path,ffmpeg_file,ytdlp_path,ytdlp_file,ytdlp_proc=entry
 
         try:
-            if ytdlp_proc.poll() is None:
+            if ytdlp_proc and ytdlp_proc.poll() is None:
                 ytdlp_proc.terminate()
                 try:ytdlp_proc.wait(timeout=2)
                 except subprocess.TimeoutExpired:ytdlp_proc.kill()
@@ -357,9 +382,22 @@ class Music(commands.Cog):
                 self.current.pop(guild.id,None)
                 return await self.start_next(guild)
         try:
-            src=self._build_piped_source(guild.id,item)
+            if item.get("audio_url") and not item.get("force_pipe"):
+                src=self._build_fast_source(guild.id,item)
+                mode="FAST"
+            else:
+                src=self._build_piped_source(guild.id,item)
+                mode="PIPE"
+            self.track_started[guild.id]=time.monotonic()
+            print(f"MUSIC SOURCE MODE: {mode}")
         except Exception as e:
             print("MUSIC SOURCE:",repr(e))
+            # Si la ruta rápida no pudo ni arrancar, intenta el pipe tradicional una vez.
+            if not item.get("force_pipe"):
+                item["force_pipe"]=True
+                self.queues[guild.id].appendleft(item)
+                self.current.pop(guild.id,None)
+                return await self.start_next(guild)
             ch=self.music_channels.get(guild.id)
             if ch:
                 try:await ch.send("⚠️ FFmpeg no pudo preparar esa pista. La salto sin detener Fantasmita.",delete_after=12)
@@ -405,14 +443,55 @@ class Music(commands.Cog):
     async def _after_track(self,guild,item,err):
         vc=guild.voice_client
         title=item.get("title","Audio")
+        elapsed=max(0.0,time.monotonic()-self.track_started.pop(guild.id,time.monotonic()))
+        duration=item.get("duration")
+        intentional=guild.id in self.intentional_stop
+        if intentional:self.intentional_stop.discard(guild.id)
         print(
-            f"MUSIC FINISHED | title={title} | error={err!r} | "
-            f"connected={bool(vc and vc.is_connected())} | "
-            f"playing={bool(vc and vc.is_playing())}"
+            f"MUSIC FINISHED | title={title} | error={err!r} | elapsed={elapsed:.1f}s | "
+            f"connected={bool(vc and vc.is_connected())} | playing={bool(vc and vc.is_playing())}"
         )
         self._dump_ffmpeg_log(guild.id)
+
+        # Un final demasiado temprano casi siempre significa stream/FFmpeg/voz cortado.
+        premature = (err is not None) or elapsed < 8.0
+        if isinstance(duration,(int,float)) and duration>15:
+            premature = premature or elapsed < min(15.0, max(8.0,duration*0.08))
+
+        if not intentional and premature and int(item.get("retry_count") or 0) < 2:
+            item["retry_count"]=int(item.get("retry_count") or 0)+1
+            item["force_pipe"]=True
+            print(f"MUSIC AUTO RECOVERY: intento {item['retry_count']} | {title}")
+            # Refresca metadatos/URL para no reutilizar un enlace CDN muerto.
+            try:
+                fresh=await self.resolve(item.get("webpage") or item.get("query"))
+                fresh["retry_count"]=item["retry_count"]
+                fresh["force_pipe"]=True
+                item=fresh
+            except Exception as e:
+                print("MUSIC RECOVERY RESOLVE:",repr(e))
+
+            # Si Discord Voice cayó, intenta volver al último canal conocido.
+            vc=guild.voice_client
+            if not vc or not vc.is_connected():
+                channel=guild.get_channel(self.voice_channels.get(guild.id,0))
+                if channel:
+                    try:
+                        if vc:
+                            try:await vc.disconnect(force=True)
+                            except Exception:pass
+                        await channel.connect(reconnect=True)
+                        print(f"MUSIC VOICE RECOVERED: {channel}")
+                    except Exception as e:
+                        print("MUSIC VOICE RECOVERY:",repr(e))
+
+            self.current.pop(guild.id,None)
+            self.queues[guild.id].appendleft(item)
+            await asyncio.sleep(0.8)
+            return await self.start_next(guild)
+
         current=self.current.get(guild.id)
-        if current is item:
+        if current is item or current and current.get("webpage")==item.get("webpage"):
             self.current.pop(guild.id,None)
         await self.update_player(guild)
         if self.queues[guild.id]:
@@ -428,6 +507,7 @@ class Music(commands.Cog):
         # Detener audio nunca toca el panel fijo de #musica.
         self.queues[guild.id].clear();self.current.pop(guild.id,None)
         vc=guild.voice_client
+        self.intentional_stop.add(guild.id)
         if vc:await vc.disconnect(force=True)
 
     @commands.hybrid_command(description="Reproduce audio o añade a la cola")
@@ -508,7 +588,8 @@ class Music(commands.Cog):
     async def skip(self,ctx):
         if not await self.require_music(ctx):return
         vc=ctx.guild.voice_client
-        if vc and (vc.is_playing() or vc.is_paused()):vc.stop();return await ctx.send("⏭️ Siguiente.",delete_after=4)
+        if vc and (vc.is_playing() or vc.is_paused()):
+            self.intentional_stop.add(ctx.guild.id);vc.stop();return await ctx.send("⏭️ Siguiente.",delete_after=4)
         await ctx.send("No hay pista activa.",delete_after=4)
 
     @commands.hybrid_command(description="Muestra la cola")
@@ -540,5 +621,6 @@ class Music(commands.Cog):
             try:self._dump_ffmpeg_log(gid)
             except Exception:pass
         self.queues.clear();self.current.clear();self.music_channels.clear()
+        self.voice_channels.clear();self.track_started.clear();self.intentional_stop.clear()
 
 async def setup(b):await b.add_cog(Music(b))

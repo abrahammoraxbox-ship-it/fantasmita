@@ -1,0 +1,13 @@
+Commit 43 - Música rápida y autorecuperable
+Base: cuarentaydos commit.
+
+- MUSIC CODE VERSION: hybrid-fast-v5.
+- /play reutiliza la URL directa obtenida en la primera extracción de yt-dlp.
+- Evita lanzar un segundo yt-dlp antes de empezar cuando la URL directa está disponible.
+- FFmpeg mantiene reconnect para streams directos.
+- Si el stream directo falla, cambia automáticamente al pipeline yt-dlp -> FFmpeg.
+- Detecta finales prematuros y reintenta la pista hasta 2 veces.
+- Si Discord Voice cayó, intenta reconectar al último canal de voz.
+- Refresca la URL de YouTube antes de una recuperación.
+- Skip y Stop se consideran acciones intencionales y no reanudan la canción.
+- Conserva panel persistente, cola, volumen y comandos existentes.
