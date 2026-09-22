@@ -245,6 +245,9 @@ class OwnerPanel(discord.ui.View):
         # No se registra como vista persistente global: conserva el diseño original.
         super().__init__(timeout=None)
         self.owner=int(owner)
+        # Estado local del panel. Cada !panel mantiene su propia selección.
+        self.member_id=None
+        self.role_id=None
 
     async def on_error(self, interaction, error, item):
         # Si Discord.py rechaza una interacción, deja el error visible en Wispbyte.
@@ -264,20 +267,14 @@ class OwnerPanel(discord.ui.View):
             return False
         return True
 
-    def key(self,i):
-        return (i.guild.id,self.owner)
-
-    def state(self,i):
-        return OWNER_PANEL_STATE.setdefault(self.key(i),{"member_id":None,"role_id":None})
-
     def resolve(self,i):
-        st=self.state(i)
-        member=i.guild.get_member(st.get("member_id")) if st.get("member_id") else None
-        role=i.guild.get_role(st.get("role_id")) if st.get("role_id") else None
+        member=i.guild.get_member(self.member_id) if self.member_id else None
+        role=i.guild.get_role(self.role_id) if self.role_id else None
         return member,role
 
     def clear(self,i):
-        OWNER_PANEL_STATE[self.key(i)]={"member_id":None,"role_id":None}
+        self.member_id=None
+        self.role_id=None
 
     def role_allowed(self,i,role):
         """El fundador puede gestionar roles propios y personalizados seguros bajo Fantasmita."""
@@ -314,12 +311,12 @@ class OwnerPanel(discord.ui.View):
 
     @discord.ui.select(cls=discord.ui.UserSelect,placeholder="Seleccionar usuario",row=0)
     async def us(self,i,s):
-        self.state(i)["member_id"]=s.values[0].id
+        self.member_id=s.values[0].id
         await self.refresh(i)
 
     @discord.ui.select(cls=discord.ui.RoleSelect,placeholder="Seleccionar rol",row=1)
     async def ro(self,i,s):
-        self.state(i)["role_id"]=s.values[0].id
+        self.role_id=s.values[0].id
         await self.refresh(i)
 
     @discord.ui.button(label="DAR",style=discord.ButtonStyle.success,row=2)
