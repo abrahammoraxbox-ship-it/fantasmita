@@ -93,9 +93,58 @@ class Music(commands.Cog):
         return "\n".join(lines) if lines else "📭 Cola vacía."
 
     async def update_player(self,guild):
-        # Panel dinámico desactivado: el servidor ya tiene MusicControlView persistente.
-        # Mantener este método permite conservar cola, volumen y comandos sin duplicar paneles.
-        return
+        # Actualiza ÚNICAMENTE el panel MUSIC fijo creado por core.ensure_structure.
+        # No crea mensajes nuevos, no añade una segunda View y no toca otros sistemas.
+        cur=self.current.get(guild.id)
+        q=list(self.queues[guild.id])
+        volume=round(self.volumes[guild.id]*100)
+
+        if cur:
+            duration=cur.get("duration")
+            if isinstance(duration,(int,float)) and duration>0:
+                total=int(duration);mins,secs=divmod(total,60)
+                duration_text=f"{mins}:{secs:02d}"
+            else:
+                duration_text="Desconocida"
+            description=(
+                f"▶️ **Reproduciendo ahora**\n[{cur.get('title','Audio')}]({cur.get('webpage') or cur.get('query') or ''})\n"
+                f"⏱️ Duración: **{duration_text}** • 🔊 Volumen: **{volume}%**\n\n"
+            )
+        else:
+            description=(
+                "⏹️ **Nada reproduciéndose ahora.**\n"
+                f"🔊 Volumen: **{volume}%**\n\n"
+            )
+
+        if q:
+            upcoming="\n".join(f"`{n}.` {x.get('title','Audio')}" for n,x in enumerate(q[:5],1))
+            description+=f"📜 **Siguiente en la cola**\n{upcoming}\n\n"
+        else:
+            description+="📭 **Cola vacía.**\n\n"
+
+        description+=(
+            "Entra a un canal de voz y usa **`/play`** en este canal.\n"
+            "Puedes pegar un enlace de YouTube o escribir el nombre de una canción."
+        )
+        embed=discord.Embed(title="🎵 FANTASMITA • CENTRO MUSICAL",description=description,colour=0xA855F7)
+
+        # El ID del panel fijo ya está guardado por core.ensure_panel. Solo lo editamos.
+        try:
+            row=self.b.db.execute(
+                "SELECT channel_id,message_id FROM panel_messages WHERE guild_id=? AND panel_key=?",
+                (guild.id,"MUSIC")
+            ).fetchone()
+            if not row:return
+            ch=guild.get_channel(row[0])
+            if not ch:return
+            msg=await ch.fetch_message(row[1])
+            await msg.edit(embed=embed)
+        except discord.NotFound:
+            # Si alguien borró manualmente el panel, no creamos duplicados aquí.
+            # core.ensure_structure será quien lo reconstruya de forma segura.
+            return
+        except (discord.Forbidden,discord.HTTPException) as e:
+            print("MUSIC PANEL:",repr(e))
 
     async def start_next(self,guild):
         vc=guild.voice_client
