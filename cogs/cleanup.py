@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 
 # IMPORTANT:
+# La limpieza automática ahora vive en core.py y solo elimina duplicados claros del bot.
 # This cleanup NEVER deletes channels based only on their name.
 # It only removes duplicate channels that the current compact bot itself manages.
 # A channel is considered removable only when:

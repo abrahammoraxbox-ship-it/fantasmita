@@ -1,6 +1,6 @@
 import os, sqlite3, time, discord
-SCHEMA=11
-SETUP_VERSION=11
+SCHEMA=12
+SETUP_VERSION=12
 
 class Database:
     def __init__(self,path):
@@ -248,6 +248,44 @@ async def sync_member_access(bot,guild,pending,gamer):
         except (discord.Forbidden,discord.HTTPException) as e:
             print("MEMBER ACCESS SYNC:",m.id,repr(e))
 
+async def cleanup_managed_duplicates(bot,guild):
+    """Elimina solo duplicados claros de canales administrados por Fantasmita.
+    Nunca borra canales personalizados que no coincidan con la estructura propia."""
+    cfg=bot.db.execute(
+        """SELECT access_ch,suggest_ch,ticket_ch,voice_panel_ch,requests_ch,
+                  logs_ch,owner_ch FROM guild_config WHERE guild_id=?""",
+        (guild.id,)
+    ).fetchone()
+    if not cfg:
+        return 0
+
+    canonical=dict(zip(
+        ["access_ch","suggest_ch","ticket_ch","voice_panel_ch",
+         "requests_ch","logs_ch","owner_ch"],cfg
+    ))
+    managed={
+        "bienvenida-y-acceso":"access_ch",
+        "sugerencias":"suggest_ch",
+        "abrir-ticket":"ticket_ch",
+        "control-de-voz":"voice_panel_ch",
+        "solicitudes-acceso":"requests_ch",
+        "logs":"logs_ch",
+        "panel-fundador":"owner_ch",
+    }
+    deleted=0
+    for ch in list(guild.text_channels):
+        col=managed.get(ch.name)
+        if not col:
+            continue
+        keep_id=canonical.get(col) or 0
+        if keep_id and ch.id!=keep_id and guild.get_channel(keep_id):
+            try:
+                await ch.delete(reason="Eco: limpieza automática de duplicado administrado")
+                deleted+=1
+            except (discord.Forbidden,discord.HTTPException) as e:
+                print("AUTO CLEANUP:",ch.id,repr(e))
+    return deleted
+
 async def ensure_structure(bot,g):
     founder=await ensure_role(g,"👑 Fundador",0xFFD166,discord.Permissions.none(),hoist=True)
     admin_perms=discord.Permissions(
@@ -391,5 +429,6 @@ async def ensure_structure(bot,g):
         colour=0xFFD166))
 
     await sync_member_access(bot,g,pending,gamer)
-    print(f"✅ AUTOSETUP V{SETUP_VERSION}: {g.name} organizado y permisos sincronizados")
+    removed=await cleanup_managed_duplicates(bot,g)
+    print(f"✅ AUTOSETUP V{SETUP_VERSION}: {g.name} organizado | duplicados eliminados={removed} | permisos sincronizados")
 

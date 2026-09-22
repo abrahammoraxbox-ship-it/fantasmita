@@ -1,0 +1,8 @@
+Commit 40 - Reorganización automática segura
+- SETUP_VERSION=12
+- Repara términos, acceso, paneles y permisos.
+- Ordena categorías/canales propios de Fantasmita.
+- Elimina automáticamente solo duplicados claros de canales administrados por el bot.
+- No borra canales personalizados ajenos.
+- Sincroniza Pendiente/Gamer para miembros existentes.
+- Mantiene Fundador/Staff restringidos.
