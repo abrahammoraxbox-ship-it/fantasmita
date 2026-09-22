@@ -1,0 +1,10 @@
+DIAGNOSTICO DE MUSICA - FANTASMITA
+
+Cambios aislados:
+- requirements.txt usa yt-dlp[default]>=2026.8.19 para incluir yt-dlp-ejs.
+- cogs/music.py imprime al arrancar: FFmpeg, yt-dlp, yt-dlp-ejs, Deno y Node.
+- No se modificaron roles, economia, XP, tickets, voz, canales ni seguridad.
+- No se instala Deno automaticamente: Wispbyte debe proveer un runtime compatible.
+
+Si Deno y Node muestran NO, copia MUSIC DIAGNOSTIC y compartelo.
+Si aparece HTTP 403/JS challenge en consola, comparte esas lineas tambien.

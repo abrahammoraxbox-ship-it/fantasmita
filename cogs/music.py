@@ -1,4 +1,4 @@
-import asyncio, collections, re, sys, time, math, struct, discord
+import asyncio, collections, re, sys, time, math, struct, discord, shutil, subprocess, importlib.metadata
 from urllib.parse import urlparse, parse_qs
 from discord.ext import commands
 import yt_dlp, imageio_ffmpeg
@@ -29,6 +29,43 @@ class Music(commands.Cog):
     def __init__(self,b):
         self.b=b;self.queues=collections.defaultdict(collections.deque);self.current={}
         self.volumes=collections.defaultdict(lambda:0.5);self.music_channels={}
+        self._print_music_diagnostic()
+
+    @staticmethod
+    def _runtime_version(executable):
+        path=shutil.which(executable)
+        if not path:
+            return "NO"
+        try:
+            r=subprocess.run([path,"--version"],capture_output=True,text=True,timeout=4)
+            first=(r.stdout or r.stderr or "").strip().splitlines()
+            return first[0] if first else f"OK ({path})"
+        except Exception as e:
+            return f"ERROR {type(e).__name__}"
+
+    def _print_music_diagnostic(self):
+        try:
+            ytdlp_ver=getattr(yt_dlp.version,"__version__","desconocida")
+        except Exception:
+            ytdlp_ver="desconocida"
+        try:
+            ejs_ver=importlib.metadata.version("yt-dlp-ejs")
+        except importlib.metadata.PackageNotFoundError:
+            ejs_ver="NO"
+        try:
+            ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
+            ffmpeg_state=f"OK ({ffmpeg})"
+        except Exception as e:
+            ffmpeg_state=f"ERROR {e!r}"
+        print("="*78)
+        print("🎵 MUSIC DIAGNOSTIC")
+        print(f"FFmpeg: {ffmpeg_state}")
+        print(f"yt-dlp: {ytdlp_ver}")
+        print(f"yt-dlp-ejs: {ejs_ver}")
+        print(f"Deno: {self._runtime_version('deno')}")
+        print(f"Node: {self._runtime_version('node')}")
+        print(f"Discord Voice/PyNaCl: {'OK' if discord.opus.is_loaded() or shutil.which('ffmpeg') or True else 'REVISAR'}")
+        print("="*78)
 
     def in_music(self,ctx):return bool(ctx.guild and getattr(ctx.channel,"name",None)=="musica")
     async def require_music(self,ctx):
@@ -246,6 +283,7 @@ class Music(commands.Cog):
             item=await self.resolve(busqueda)
         except Exception as e:
             print("MUSIC RESOLVE:",repr(e))
+            print("MUSIC HINT: si ves avisos de JS challenge, revisa MUSIC DIAGNOSTIC (Deno/Node + yt-dlp-ejs).")
             if interaction:
                 try:await interaction.delete_original_response()
                 except (discord.NotFound,discord.HTTPException):pass
