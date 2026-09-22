@@ -1,14 +1,7 @@
-FANTASMITA - FIX DENO / YOUTUBE
+FIX DENO / MUSICA - WISBYTE
 
-- Instala Deno localmente en .deno/bin/deno si Wispbyte no lo trae.
-- No requiere root ni modificar el Startup Command.
-- Reutiliza la instalación local en los siguientes reinicios.
-- Añade Deno al PATH antes de cargar cogs.music / yt-dlp.
-- Si la descarga falla, Fantasmita sigue iniciando y deja el error en consola.
-- Mantiene yt-dlp[default] y yt-dlp-ejs.
-- No modifica roles, economía, XP, tickets, voz, seguridad ni panel fundador.
-
-Al iniciar debe aparecer:
-  DENO BOOTSTRAP: ...
-y luego en MUSIC DIAGNOSTIC:
-  Deno: deno 2.x.x
+- Se elimina el bootstrap manual de Deno que fallaba al descomprimir por falta de espacio.
+- Deno se instala mediante el extra oficial de yt-dlp: yt-dlp[default,deno].
+- Se conserva yt-dlp-ejs mediante el extra default.
+- No se modifican roles, economia, tickets, XP, seguridad ni otros sistemas.
+- El diagnostico de cogs/music.py se mantiene para confirmar Deno al iniciar.
