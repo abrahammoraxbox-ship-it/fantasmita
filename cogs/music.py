@@ -61,6 +61,7 @@ class Music(commands.Cog):
         self.volumes=collections.defaultdict(lambda:0.5);self.music_channels={};self._ffmpeg_logs={}
         self.voice_channels={};self.track_started={};self.intentional_stop=set()
         self._watchdogs={};self._track_tokens=collections.defaultdict(int)
+        self._voice_keepalive_tasks={};self._voice_recover_locks={}
         self._print_music_diagnostic()
 
     @staticmethod
@@ -89,7 +90,7 @@ class Music(commands.Cog):
             ffmpeg_state=f"OK ({ffmpeg})"
         except Exception as e:
             ffmpeg_state=f"ERROR {e!r}"
-        print("MUSIC CODE VERSION: hybrid-watchdog-v6")
+        print("MUSIC CODE VERSION: voice-keepalive-v7")
         print("="*78)
         print("🎵 MUSIC DIAGNOSTIC")
         print(f"FFmpeg: {ffmpeg_state}")
@@ -168,6 +169,80 @@ class Music(commands.Cog):
                 }
         return await loop.run_in_executor(None,work)
 
+    def _voice_lock(self,gid):
+        lock=self._voice_recover_locks.get(gid)
+        if not lock:
+            lock=asyncio.Lock();self._voice_recover_locks[gid]=lock
+        return lock
+
+    def _cancel_voice_keepalive(self,gid):
+        task=self._voice_keepalive_tasks.pop(gid,None)
+        if task and not task.done():
+            task.cancel()
+
+    def _start_voice_keepalive(self,guild):
+        gid=guild.id
+        task=self._voice_keepalive_tasks.get(gid)
+        if task and not task.done():
+            return
+        self._voice_keepalive_tasks[gid]=asyncio.create_task(self._voice_keepalive(guild))
+
+    async def _voice_keepalive(self,guild):
+        gid=guild.id
+        try:
+            while True:
+                await asyncio.sleep(15)
+                current=self.current.get(gid)
+                queued=bool(self.queues[gid])
+                if not current and not queued:
+                    return
+                vc=guild.voice_client
+                channel_id=self.voice_channels.get(gid)
+                print(
+                    f"MUSIC VOICE KEEPALIVE | guild={guild.name} | "
+                    f"voice_client={bool(vc)} | connected={bool(vc and vc.is_connected())} | "
+                    f"channel={getattr(getattr(vc,'channel',None),'id',None)} | target={channel_id}"
+                )
+                if vc and vc.is_connected():
+                    continue
+                channel=guild.get_channel(channel_id or 0)
+                if not channel:
+                    print("MUSIC VOICE KEEPALIVE: target channel missing")
+                    continue
+                async with self._voice_lock(gid):
+                    vc=guild.voice_client
+                    if vc and vc.is_connected():
+                        continue
+                    try:
+                        if vc:
+                            try:await vc.disconnect(force=True)
+                            except Exception:pass
+                        await channel.connect(reconnect=True,timeout=20.0,self_deaf=True)
+                        print(f"MUSIC VOICE KEEPALIVE RECOVERED: {channel}")
+                        item=self.current.get(gid)
+                        if item and not guild.voice_client.is_playing() and not guild.voice_client.is_paused():
+                            self.current.pop(gid,None)
+                            item["retry_count"]=min(int(item.get("retry_count") or 0)+1,2)
+                            item["force_pipe"]=True
+                            self.queues[gid].appendleft(item)
+                            await self.start_next(guild)
+                    except Exception as e:
+                        print("MUSIC VOICE KEEPALIVE RECOVERY ERROR:",repr(e))
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            print("MUSIC VOICE KEEPALIVE ERROR:",repr(e))
+
+    async def panel_skip(self,guild):
+        vc=guild.voice_client
+        if vc and (vc.is_playing() or vc.is_paused()):
+            self.intentional_stop.add(guild.id)
+            self._track_tokens[guild.id]+=1
+            self._cancel_watchdog(guild.id)
+            vc.stop()
+            return True
+        return False
+
     async def ensure_voice(self,ctx):
         if not ctx.author.voice or not ctx.author.voice.channel:
             await ctx.send("🎧 Entra primero a un canal de voz.");return None
@@ -176,6 +251,7 @@ class Music(commands.Cog):
             if not vc:vc=await target.connect(reconnect=True)
             elif vc.channel!=target:await vc.move_to(target)
             self.voice_channels[ctx.guild.id]=target.id
+            self._start_voice_keepalive(ctx.guild)
             return vc
         except Exception as e:
             print("MUSIC VOICE:",repr(e));await ctx.send("❌ No pude entrar al canal de voz.");return None
@@ -441,6 +517,7 @@ class Music(commands.Cog):
         return True
 
     async def start_next(self,guild):
+        self._start_voice_keepalive(guild)
         vc=guild.voice_client
         if not vc or not vc.is_connected():return
         if not self.queues[guild.id]:
@@ -571,10 +648,53 @@ class Music(commands.Cog):
     async def stop_guild(self,guild,delete_player=True):
         # Detener audio nunca toca el panel fijo de #musica.
         self.queues[guild.id].clear();self.current.pop(guild.id,None)
-        self._track_tokens[guild.id]+=1;self._cancel_watchdog(guild.id)
+        self._track_tokens[guild.id]+=1;self._cancel_watchdog(guild.id);self._cancel_voice_keepalive(guild.id)
         vc=guild.voice_client
         self.intentional_stop.add(guild.id)
         if vc:await vc.disconnect(force=True)
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self,member,before,after):
+        if not self.b.user or member.id!=self.b.user.id:
+            return
+        guild=member.guild
+        gid=guild.id
+        before_id=before.channel.id if before.channel else None
+        after_id=after.channel.id if after.channel else None
+        print(f"MUSIC BOT VOICE STATE | before={before_id} | after={after_id}")
+        if after.channel:
+            self.voice_channels[gid]=after.channel.id
+            self._start_voice_keepalive(guild)
+            return
+        if gid in self.intentional_stop:
+            return
+        if not self.current.get(gid) and not self.queues[gid]:
+            return
+        target_id=self.voice_channels.get(gid) or before_id
+        channel=guild.get_channel(target_id or 0)
+        if not channel:
+            print("MUSIC BOT VOICE STATE: no recovery target")
+            return
+        async with self._voice_lock(gid):
+            vc=guild.voice_client
+            if vc and vc.is_connected():
+                return
+            try:
+                if vc:
+                    try:await vc.disconnect(force=True)
+                    except Exception:pass
+                await asyncio.sleep(1.0)
+                await channel.connect(reconnect=True,timeout=20.0,self_deaf=True)
+                print(f"MUSIC BOT VOICE STATE RECOVERED: {channel}")
+                item=self.current.get(gid)
+                if item and not guild.voice_client.is_playing() and not guild.voice_client.is_paused():
+                    self.current.pop(gid,None)
+                    item["retry_count"]=min(int(item.get("retry_count") or 0)+1,2)
+                    item["force_pipe"]=True
+                    self.queues[gid].appendleft(item)
+                    await self.start_next(guild)
+            except Exception as e:
+                print("MUSIC BOT VOICE STATE RECOVERY ERROR:",repr(e))
 
     @commands.hybrid_command(description="Reproduce audio o añade a la cola")
     async def play(self,ctx,*,busqueda:str):
@@ -653,11 +773,8 @@ class Music(commands.Cog):
     @commands.hybrid_command(description="Salta la pista")
     async def skip(self,ctx):
         if not await self.require_music(ctx):return
-        vc=ctx.guild.voice_client
-        if vc and (vc.is_playing() or vc.is_paused()):
-            self.intentional_stop.add(ctx.guild.id)
-            self._track_tokens[ctx.guild.id]+=1;self._cancel_watchdog(ctx.guild.id)
-            vc.stop();return await ctx.send("⏭️ Siguiente.",delete_after=4)
+        if await self.panel_skip(ctx.guild):
+            return await ctx.send("⏭️ Siguiente.",delete_after=4)
         await ctx.send("No hay pista activa.",delete_after=4)
 
     @commands.hybrid_command(description="Muestra la cola")
@@ -690,7 +807,8 @@ class Music(commands.Cog):
             except Exception:pass
         self.queues.clear();self.current.clear();self.music_channels.clear()
         for gid in list(self._watchdogs):self._cancel_watchdog(gid)
+        for gid in list(self._voice_keepalive_tasks):self._cancel_voice_keepalive(gid)
         self.voice_channels.clear();self.track_started.clear();self.intentional_stop.clear()
-        self._track_tokens.clear()
+        self._track_tokens.clear();self._voice_recover_locks.clear()
 
 async def setup(b):await b.add_cog(Music(b))

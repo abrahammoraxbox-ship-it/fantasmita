@@ -385,9 +385,10 @@ class MusicControlView(discord.ui.View):
 
     @discord.ui.button(label="Saltar",emoji="⏭️",style=discord.ButtonStyle.primary,custom_id="eco:music:skip")
     async def skip(self,i,b):
-        vc=i.guild.voice_client
-        if vc and (vc.is_playing() or vc.is_paused()):
-            vc.stop();return await i.response.send_message("⏭️ Pista saltada.",ephemeral=True)
+        cog=self.music()
+        if not cog:return await i.response.send_message("⚠️ Música no disponible.",ephemeral=True)
+        if await cog.panel_skip(i.guild):
+            return await i.response.send_message("⏭️ Pista saltada.",ephemeral=True)
         await i.response.send_message("ℹ️ No hay una pista activa.",ephemeral=True)
 
     @discord.ui.button(label="Vol -",emoji="🔉",style=discord.ButtonStyle.secondary,custom_id="eco:music:voldown")

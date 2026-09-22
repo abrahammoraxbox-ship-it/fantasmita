@@ -1,0 +1,13 @@
+Commit 45 - Discord Voice keepalive y autorecuperación
+Base: cuarentaycuatro commit.
+
+- MUSIC CODE VERSION: voice-keepalive-v7.
+- Keepalive independiente de la canción cada 15 s.
+- Listener del estado de voz del propio bot.
+- Si Fantasmita abandona el canal sin Stop, intenta reconectar al último canal.
+- Si vuelve sin audio activo, reencola la pista actual por PIPE.
+- Lock por servidor para evitar reconexiones duplicadas.
+- /skip y botón Saltar usan exactamente la misma lógica.
+- Stop cancela watchdog y voice keepalive.
+- Logs MUSIC BOT VOICE STATE y MUSIC VOICE KEEPALIVE para diagnóstico.
+- No toca roles, categorías, acceso, tickets ni demás módulos.
