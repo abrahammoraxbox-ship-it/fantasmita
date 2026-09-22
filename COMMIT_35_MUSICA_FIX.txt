@@ -1,0 +1,6 @@
+Commit 35 - corrección de música
+- Basado en la estructura completa del proyecto.
+- Corrige selección de URL de audio.
+- Captura stderr real de FFmpeg en /tmp.
+- Siempre imprime MUSIC FFMPEG STDERR al finalizar.
+- Mantiene Deno, panel musical y resto del bot.

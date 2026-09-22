@@ -51,7 +51,7 @@ class _ToneSource(discord.AudioSource):
 class Music(commands.Cog):
     def __init__(self,b):
         self.b=b;self.queues=collections.defaultdict(collections.deque);self.current={}
-        self.volumes=collections.defaultdict(lambda:0.5);self.music_channels={}
+        self.volumes=collections.defaultdict(lambda:0.5);self.music_channels={};self._ffmpeg_logs={}
         self._print_music_diagnostic()
 
     @staticmethod
@@ -80,7 +80,7 @@ class Music(commands.Cog):
             ffmpeg_state=f"OK ({ffmpeg})"
         except Exception as e:
             ffmpeg_state=f"ERROR {e!r}"
-        print("MUSIC CODE VERSION: ffmpeg-diagnostic-v2")
+        print("MUSIC CODE VERSION: ffmpeg-final-v3")
         print("="*78)
         print("🎵 MUSIC DIAGNOSTIC")
         print(f"FFmpeg: {ffmpeg_state}")
@@ -105,10 +105,15 @@ class Music(commands.Cog):
     @staticmethod
     def _pick_audio_url(info):
         if not isinstance(info,dict):return None
-        if info.get("url"):return info["url"]
+        req=info.get("requested_downloads") or []
+        for f in req:
+            if isinstance(f,dict) and f.get("url") and f.get("acodec") not in (None,"none"):
+                return f["url"]
         fs=[f for f in (info.get("formats") or []) if isinstance(f,dict) and f.get("url") and f.get("acodec") not in (None,"none")]
         fs.sort(key=lambda f:(f.get("abr") or 0,f.get("tbr") or 0),reverse=True)
-        return fs[0]["url"] if fs else None
+        if fs:return fs[0]["url"]
+        if info.get("url") and info.get("acodec") not in ("none",None):return info["url"]
+        return None
 
     @staticmethod
     def normalize_query(q):
@@ -213,6 +218,32 @@ class Music(commands.Cog):
         except (discord.Forbidden,discord.HTTPException) as e:
             print("MUSIC PANEL:",repr(e))
 
+    def _dump_ffmpeg_log(self,guild_id):
+        log_path,log_file=self._ffmpeg_logs.pop(guild_id,(None,None))
+        data=b""
+        if log_file:
+            try:
+                log_file.flush();log_file.seek(0);data=log_file.read()
+            except Exception as e:
+                print("MUSIC FFMPEG LOG READ:",repr(e))
+            finally:
+                try:log_file.close()
+                except Exception:pass
+        if not data and log_path:
+            try:
+                with open(log_path,"rb") as f:data=f.read()
+            except Exception:pass
+        if log_path:
+            try:os.remove(log_path)
+            except OSError:pass
+
+        if data:
+            msg=data.decode("utf-8","replace").strip()
+            if msg:
+                print("MUSIC FFMPEG STDERR:",msg[:8000])
+                return
+        print("MUSIC FFMPEG STDERR: <sin salida; FFmpeg terminó sin escribir error>")
+
     async def start_next(self,guild):
         vc=guild.voice_client
         if not vc or not vc.is_connected():return
@@ -240,9 +271,6 @@ class Music(commands.Cog):
                 self.current.pop(guild.id,None)
                 return await self.start_next(guild)
         try:
-            # YouTube/CDN puede requerir User-Agent/Referer. Se pasan como opciones
-            # nativas de FFmpeg para evitar que un bloque -headers mal escapado cierre
-            # la fuente inmediatamente.
             headers=item.get("http_headers") or {}
             before="-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
             ua=headers.get("User-Agent") or headers.get("user-agent")
@@ -251,12 +279,22 @@ class Music(commands.Cog):
                 before += f' -user_agent "{str(ua).replace(chr(34), chr(39))}"'
             if ref:
                 before += f' -referer "{str(ref).replace(chr(34), chr(39))}"'
+
             ffmpeg_path=imageio_ffmpeg.get_ffmpeg_exe()
+            log_path=f"/tmp/fantasmita_ffmpeg_{guild.id}.log"
+            try:
+                log_file=open(log_path,"w+b")
+            except OSError:
+                log_path=None
+                log_file=None
+
             print(f"MUSIC FFMPEG: {ffmpeg_path}")
             ffmpeg=discord.FFmpegPCMAudio(
                 item["url"],executable=ffmpeg_path,
-                before_options=before,options="-vn -loglevel warning",stderr=sys.stderr)
+                before_options=before,options="-vn -loglevel verbose",
+                stderr=log_file if log_file else sys.stderr)
             src=discord.PCMVolumeTransformer(ffmpeg,volume=self.volumes[guild.id])
+            self._ffmpeg_logs[guild.id]=(log_path,log_file)
         except Exception as e:
             print("MUSIC SOURCE:",repr(e))
             ch=self.music_channels.get(guild.id)
@@ -291,6 +329,7 @@ class Music(commands.Cog):
                 print("MUSIC WARNING: audio source stopped immediately after vc.play()")
         except Exception as e:
             print("MUSIC PLAY START:",repr(e))
+            self._dump_ffmpeg_log(guild.id)
             try:src.cleanup()
             except Exception:pass
             ch=self.music_channels.get(guild.id)
@@ -308,6 +347,7 @@ class Music(commands.Cog):
             f"connected={bool(vc and vc.is_connected())} | "
             f"playing={bool(vc and vc.is_playing())}"
         )
+        self._dump_ffmpeg_log(guild.id)
         current=self.current.get(guild.id)
         if current is item:
             self.current.pop(guild.id,None)
