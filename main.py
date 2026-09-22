@@ -1,4 +1,6 @@
 import os, asyncio, traceback
+from deno_bootstrap import ensure_deno
+ensure_deno()
 from selftest import run as run_selftest
 run_selftest()
 
