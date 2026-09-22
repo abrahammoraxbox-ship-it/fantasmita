@@ -74,7 +74,7 @@ class Owner(commands.Cog):
         if not self.own(ctx):return await ctx.send("🔒 Solo el propietario.")
         from core import ensure_structure
         await ensure_structure(self.b,ctx.guild)
-        await ctx.send("✅ Fantasmita reparó canales, permisos, paneles y acceso del servidor.")
+        await ctx.send("✅ Fantasmita forzó nuevamente el orden, ACCESO, permisos, paneles y roles del servidor.")
 
     @commands.command()
     async def instalarbranding(self,ctx):

@@ -1,0 +1,10 @@
+Commit 41 - Acceso y orden definitivo
+- SCHEMA=13 / SETUP_VERSION=13.
+- 🚪 ACCESO fuerza visibilidad para @everyone a nivel de categoría y canal.
+- #bienvenida-y-acceso fuerza lectura para todos.
+- Orden final de categorías: ACCESO, COMUNIDAD, VOZ, SOPORTE, STAFF, FUNDADOR.
+- Reordena también los canales internos de cada categoría.
+- Mantiene Pendiente/Gamer.
+- Fundador se restringe usando el propietario real del servidor.
+- Consola informa ACCESO @everyone=True/False.
+- Mantiene limpieza segura de duplicados de Fantasmita.

@@ -1,6 +1,6 @@
 import os, sqlite3, time, discord
-SCHEMA=12
-SETUP_VERSION=12
+SCHEMA=13
+SETUP_VERSION=13
 
 class Database:
     def __init__(self,path):
@@ -333,11 +333,22 @@ async def ensure_structure(bot,g):
         guard:discord.PermissionOverwrite(view_channel=True,send_messages=True)
     }
     owner_only={
-        everyone:discord.PermissionOverwrite(view_channel=False),
-        founder:discord.PermissionOverwrite(view_channel=True,send_messages=True)
+        everyone:discord.PermissionOverwrite(view_channel=False)
     }
+    if g.owner:
+        owner_only[g.owner]=discord.PermissionOverwrite(
+            view_channel=True,send_messages=True,read_message_history=True
+        )
 
-    access_cat=await ensure_category(g,"🚪 ACCESO",position=0)
+    access_category_overwrites={
+        everyone:discord.PermissionOverwrite(view_channel=True,read_message_history=True),
+        pending:discord.PermissionOverwrite(view_channel=True,read_message_history=True),
+        gamer:discord.PermissionOverwrite(view_channel=True,read_message_history=True),
+        founder:discord.PermissionOverwrite(view_channel=True,read_message_history=True),
+        admin:discord.PermissionOverwrite(view_channel=True,read_message_history=True),
+        guard:discord.PermissionOverwrite(view_channel=True,read_message_history=True)
+    }
+    access_cat=await ensure_category(g,"🚪 ACCESO",access_category_overwrites,position=0)
     access=await ensure_text(access_cat,"bienvenida-y-acceso",gate,position=0,topic="Lee los términos, acéptalos y solicita acceso.")
 
     community=await ensure_category(g,"🌌 COMUNIDAD",position=1)
@@ -428,7 +439,41 @@ async def ensure_structure(bot,g):
         description="Este espacio solo es visible para el propietario.\n\n`!panel` • `!reglas` • `!seguridad` • `!backup` • `!panico` • `!repararservidor`",
         colour=0xFFD166))
 
+    # Orden determinista: aplica las posiciones finales en una sola pasada.
+    category_order=[access_cat,community,voice_cat,support,staff_cat,founder_cat]
+    try:
+        await g.edit_channel_positions(
+            positions={cat:i for i,cat in enumerate(category_order)},
+            reason="Eco: orden final de categorías"
+        )
+    except Exception as e:
+        print("CATEGORY ORDER FINAL:",repr(e))
+
+    channel_groups=[
+        (access_cat,["bienvenida-y-acceso"]),
+        (community,["general","gaming","sugerencias","eventos","musica"]),
+        (voice_cat,["🔊 General","🎮 Gaming","➕ Crear sala privada","control-de-voz"]),
+        (support,["abrir-ticket","ayuda"]),
+        (staff_cat,["solicitudes-acceso","logs"]),
+        (founder_cat,["panel-fundador","auditoria-fundador"]),
+    ]
+    for cat,names in channel_groups:
+        pos=0
+        for name in names:
+            ch=discord.utils.get(cat.channels,name=name)
+            if not ch:continue
+            try:
+                await ch.edit(position=pos,reason="Eco: orden final de canales")
+            except (discord.Forbidden,discord.HTTPException) as e:
+                print("CHANNEL ORDER FINAL:",name,repr(e))
+            pos+=1
+
     await sync_member_access(bot,g,pending,gamer)
     removed=await cleanup_managed_duplicates(bot,g)
-    print(f"✅ AUTOSETUP V{SETUP_VERSION}: {g.name} organizado | duplicados eliminados={removed} | permisos sincronizados")
+    everyone_access=access.permissions_for(g.default_role).view_channel
+    print(
+        f"✅ AUTOSETUP V{SETUP_VERSION}: {g.name} organizado | "
+        f"duplicados eliminados={removed} | permisos sincronizados | "
+        f"ACCESO @everyone={everyone_access}"
+    )
 
