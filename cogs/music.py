@@ -1,4 +1,4 @@
-import asyncio, collections, re, sys, time, math, struct, discord, shutil, subprocess, importlib.metadata, os
+import asyncio, collections, re, sys, time, math, struct, discord, shutil, subprocess, importlib.metadata, os, tempfile
 from urllib.parse import urlparse, parse_qs
 from discord.ext import commands
 import yt_dlp, imageio_ffmpeg
@@ -22,8 +22,15 @@ def _find_deno():
 
 DENO_PATH = _find_deno()
 
-YDL_OPTS={"format":"bestaudio/best","quiet":True,"no_warnings":True,"noplaylist":True,
-          "extract_flat":False,"skip_download":True}
+YDL_OPTS={
+    "format":"bestaudio[ext=m4a]/bestaudio/best",
+    "quiet":True,
+    "no_warnings":True,
+    "noplaylist":True,
+    "extract_flat":False,
+    "skip_download":True,
+    "source_address":"0.0.0.0",
+}
 # yt-dlp acepta una ruta explícita al runtime desde su API Python. Esto evita
 # depender del PATH del contenedor de Wispbyte.
 if DENO_PATH:
@@ -80,7 +87,7 @@ class Music(commands.Cog):
             ffmpeg_state=f"OK ({ffmpeg})"
         except Exception as e:
             ffmpeg_state=f"ERROR {e!r}"
-        print("MUSIC CODE VERSION: ffmpeg-final-v3")
+        print("MUSIC CODE VERSION: ffmpeg-pipeline-v4")
         print("="*78)
         print("🎵 MUSIC DIAGNOSTIC")
         print(f"FFmpeg: {ffmpeg_state}")
@@ -133,18 +140,27 @@ class Music(commands.Cog):
         return q
 
     async def resolve(self,q):
-        q=self.normalize_query(q);target=q if URL_RE.match(q) else f"ytsearch1:{q}";loop=asyncio.get_running_loop()
+        q=self.normalize_query(q)
+        target=q if URL_RE.match(q) else f"ytsearch1:{q}"
+        loop=asyncio.get_running_loop()
         def work():
             with yt_dlp.YoutubeDL(YDL_OPTS) as y:
                 info=y.extract_info(target,download=False)
-                if isinstance(info,dict) and info.get("entries") is not None:info=next((x for x in info["entries"] if x),None)
+                if isinstance(info,dict) and info.get("entries") is not None:
+                    info=next((x for x in info["entries"] if x),None)
                 if not info:raise RuntimeError("Sin resultados")
-                if info.get("_type") in {"url","url_transparent"} and info.get("url"):info=y.extract_info(info["url"],download=False)
-                u=self._pick_audio_url(info)
-                if not u:raise RuntimeError("Sin formato de audio")
-                return {"url":u,"title":info.get("title") or "Audio","webpage":info.get("webpage_url") or info.get("original_url") or q,
-                        "duration":info.get("duration"),"query":q,"http_headers":info.get("http_headers") or {},
-                        "resolved_at":time.time()}
+                if info.get("_type") in {"url","url_transparent"} and info.get("url"):
+                    info=y.extract_info(info["url"],download=False)
+                webpage=info.get("webpage_url") or info.get("original_url") or q
+                if not webpage:
+                    raise RuntimeError("Sin URL reproducible")
+                return {
+                    "title":info.get("title") or "Audio",
+                    "webpage":webpage,
+                    "duration":info.get("duration"),
+                    "query":q,
+                    "resolved_at":time.time(),
+                }
         return await loop.run_in_executor(None,work)
 
     async def ensure_voice(self,ctx):
@@ -218,31 +234,101 @@ class Music(commands.Cog):
         except (discord.Forbidden,discord.HTTPException) as e:
             print("MUSIC PANEL:",repr(e))
 
-    def _dump_ffmpeg_log(self,guild_id):
-        log_path,log_file=self._ffmpeg_logs.pop(guild_id,(None,None))
-        data=b""
-        if log_file:
-            try:
-                log_file.flush();log_file.seek(0);data=log_file.read()
-            except Exception as e:
-                print("MUSIC FFMPEG LOG READ:",repr(e))
-            finally:
-                try:log_file.close()
-                except Exception:pass
-        if not data and log_path:
-            try:
-                with open(log_path,"rb") as f:data=f.read()
-            except Exception:pass
-        if log_path:
-            try:os.remove(log_path)
-            except OSError:pass
+    def _build_piped_source(self,guild_id,item):
+        """
+        Pipeline estable:
+        yt-dlp abre YouTube y escribe el mejor audio a stdout.
+        FFmpeg lee desde pipe:0 y convierte a PCM para Discord.
+        Evita depender de URLs CDN temporales que estaban devolviendo EOF inmediato.
+        """
+        ffmpeg_path=imageio_ffmpeg.get_ffmpeg_exe()
+        target=item.get("webpage") or item.get("query")
+        if not target:
+            raise RuntimeError("La pista no tiene URL de origen")
 
-        if data:
-            msg=data.decode("utf-8","replace").strip()
-            if msg:
-                print("MUSIC FFMPEG STDERR:",msg[:8000])
-                return
-        print("MUSIC FFMPEG STDERR: <sin salida; FFmpeg terminó sin escribir error>")
+        ytdlp_cmd=[
+            sys.executable,"-m","yt_dlp",
+            "--quiet","--no-warnings","--no-playlist",
+            "-f","bestaudio[ext=m4a]/bestaudio/best",
+            "-o","-",
+        ]
+        if DENO_PATH:
+            ytdlp_cmd += ["--js-runtimes",f"deno:{DENO_PATH}"]
+        ytdlp_cmd.append(target)
+
+        ytdlp_log_path=f"/tmp/fantasmita_ytdlp_{guild_id}.log"
+        ffmpeg_log_path=f"/tmp/fantasmita_ffmpeg_{guild_id}.log"
+        ytdlp_log=open(ytdlp_log_path,"w+b")
+        ffmpeg_log=open(ffmpeg_log_path,"w+b")
+
+        print("MUSIC PIPELINE: yt-dlp stdout -> FFmpeg stdin -> Discord PCM")
+        print(f"MUSIC YTDLP TARGET: {target}")
+        print(f"MUSIC FFMPEG: {ffmpeg_path}")
+
+        ytdlp_proc=subprocess.Popen(
+            ytdlp_cmd,
+            stdout=subprocess.PIPE,
+            stderr=ytdlp_log,
+            stdin=subprocess.DEVNULL,
+            bufsize=0,
+        )
+        if not ytdlp_proc.stdout:
+            ytdlp_proc.kill()
+            raise RuntimeError("yt-dlp no abrió stdout")
+
+        ffmpeg=discord.FFmpegPCMAudio(
+            ytdlp_proc.stdout,
+            pipe=True,
+            executable=ffmpeg_path,
+            before_options="-nostdin",
+            options="-vn -loglevel warning -f s16le -ar 48000 -ac 2",
+            stderr=ffmpeg_log,
+        )
+        src=discord.PCMVolumeTransformer(ffmpeg,volume=self.volumes[guild_id])
+        self._ffmpeg_logs[guild_id]=(
+            ffmpeg_log_path,ffmpeg_log,
+            ytdlp_log_path,ytdlp_log,
+            ytdlp_proc
+        )
+        return src
+
+    def _dump_ffmpeg_log(self,guild_id):
+        entry=self._ffmpeg_logs.pop(guild_id,None)
+        if not entry:
+            print("MUSIC PIPELINE LOG: <sin registro>")
+            return
+
+        ffmpeg_path,ffmpeg_file,ytdlp_path,ytdlp_file,ytdlp_proc=entry
+
+        try:
+            if ytdlp_proc.poll() is None:
+                ytdlp_proc.terminate()
+                try:ytdlp_proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:ytdlp_proc.kill()
+        except Exception:pass
+
+        def read_log(path,fileobj,label):
+            data=b""
+            if fileobj:
+                try:
+                    fileobj.flush();fileobj.seek(0);data=fileobj.read()
+                except Exception as e:
+                    print(f"{label} LOG READ:",repr(e))
+                finally:
+                    try:fileobj.close()
+                    except Exception:pass
+            if not data and path:
+                try:
+                    with open(path,"rb") as f:data=f.read()
+                except Exception:pass
+            if path:
+                try:os.remove(path)
+                except OSError:pass
+            msg=data.decode("utf-8","replace").strip() if data else ""
+            print(f"{label} STDERR:",msg[:8000] if msg else "<sin salida>")
+
+        read_log(ytdlp_path,ytdlp_file,"MUSIC YTDLP")
+        read_log(ffmpeg_path,ffmpeg_file,"MUSIC FFMPEG")
 
     async def start_next(self,guild):
         vc=guild.voice_client
@@ -255,9 +341,9 @@ class Music(commands.Cog):
         # inmediatamente: la doble extracción podía fallar/rate-limitar y hacía desaparecer
         # la tarjeta sin llegar a FFmpeg. Solo refrescamos pistas que esperaron en cola.
         age=time.time()-float(item.get("resolved_at") or 0)
-        if not item.get("url") or age>300:
+        if not item.get("webpage") or age>300:
             try:
-                fresh=await self.resolve(item.get("webpage") or item.get("query") or item.get("url",""))
+                fresh=await self.resolve(item.get("webpage") or item.get("query"))
                 item.update(fresh)
                 self.current[guild.id]=item
                 await self.update_player(guild)
@@ -271,30 +357,7 @@ class Music(commands.Cog):
                 self.current.pop(guild.id,None)
                 return await self.start_next(guild)
         try:
-            headers=item.get("http_headers") or {}
-            before="-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
-            ua=headers.get("User-Agent") or headers.get("user-agent")
-            ref=headers.get("Referer") or headers.get("referer")
-            if ua:
-                before += f' -user_agent "{str(ua).replace(chr(34), chr(39))}"'
-            if ref:
-                before += f' -referer "{str(ref).replace(chr(34), chr(39))}"'
-
-            ffmpeg_path=imageio_ffmpeg.get_ffmpeg_exe()
-            log_path=f"/tmp/fantasmita_ffmpeg_{guild.id}.log"
-            try:
-                log_file=open(log_path,"w+b")
-            except OSError:
-                log_path=None
-                log_file=None
-
-            print(f"MUSIC FFMPEG: {ffmpeg_path}")
-            ffmpeg=discord.FFmpegPCMAudio(
-                item["url"],executable=ffmpeg_path,
-                before_options=before,options="-vn -loglevel verbose",
-                stderr=log_file if log_file else sys.stderr)
-            src=discord.PCMVolumeTransformer(ffmpeg,volume=self.volumes[guild.id])
-            self._ffmpeg_logs[guild.id]=(log_path,log_file)
+            src=self._build_piped_source(guild.id,item)
         except Exception as e:
             print("MUSIC SOURCE:",repr(e))
             ch=self.music_channels.get(guild.id)
@@ -473,6 +536,9 @@ class Music(commands.Cog):
         await self.stop_guild(ctx.guild,True);await ctx.send("⏹️ Música detenida.",delete_after=4)
 
     def cog_unload(self):
+        for gid in list(self._ffmpeg_logs):
+            try:self._dump_ffmpeg_log(gid)
+            except Exception:pass
         self.queues.clear();self.current.clear();self.music_channels.clear()
 
 async def setup(b):await b.add_cog(Music(b))

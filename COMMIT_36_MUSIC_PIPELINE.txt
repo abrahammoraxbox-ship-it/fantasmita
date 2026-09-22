@@ -1,0 +1,7 @@
+Commit 36 - pipeline de audio reescrito
+- yt-dlp ya no entrega una URL CDN temporal a FFmpeg.
+- yt-dlp transmite el audio por stdout directamente a FFmpeg.
+- FFmpeg recibe por pipe y entrega PCM 48 kHz estéreo a Discord.
+- Se capturan por separado los logs de yt-dlp y FFmpeg.
+- Se conserva Deno, panel musical, botones, cola y resto del bot.
+- No se modifican roles, economía, XP, tickets, seguridad ni fundador.
