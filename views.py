@@ -241,7 +241,8 @@ class VoiceControlView(discord.ui.View):
 
 class OwnerPanel(discord.ui.View):
     def __init__(self,owner):
-        super().__init__(timeout=300)
+        # Sin caducidad mientras el bot permanezca encendido.
+        super().__init__(timeout=None)
         self.owner=int(owner)
 
     async def interaction_check(self,i):
@@ -286,10 +287,12 @@ class OwnerPanel(discord.ui.View):
         return discord.Embed(title="👑 PANEL DE ROLES",description=text,colour=0x8B5CF6)
 
     async def refresh(self,i,status=None,autoclear=False):
-        try:
-            await i.response.edit_message(embed=self.make_embed(i,status),view=self)
-        except discord.InteractionResponded:
-            await i.edit_original_response(embed=self.make_embed(i,status),view=self)
+        # Confirmamos la interacción de inmediato para evitar
+        # “Fantasmita no ha respondido a tiempo”. Después editamos
+        # exactamente el mismo mensaje del panel.
+        if not i.response.is_done():
+            await i.response.defer()
+        await i.edit_original_response(embed=self.make_embed(i,status),view=self)
         if autoclear and status:
             msg=i.message
             async def clear_status():
@@ -310,6 +313,9 @@ class OwnerPanel(discord.ui.View):
 
     @discord.ui.button(label="DAR",style=discord.ButtonStyle.success,row=2)
     async def add(self,i,b):
+        # Discord exige confirmar la interacción en pocos segundos.
+        if not i.response.is_done():
+            await i.response.defer()
         member,role=self.resolve(i)
         if not member or not self.role_allowed(i,role):
             return await self.refresh(i,"⚠️ Selecciona usuario y un rol administrable. Fundador/Pendiente y roles por encima del bot están protegidos.")
@@ -332,6 +338,9 @@ class OwnerPanel(discord.ui.View):
 
     @discord.ui.button(label="QUITAR",style=discord.ButtonStyle.danger,row=2)
     async def rem(self,i,b):
+        # Discord exige confirmar la interacción en pocos segundos.
+        if not i.response.is_done():
+            await i.response.defer()
         member,role=self.resolve(i)
         if not member or not self.role_allowed(i,role):
             return await self.refresh(i,"⚠️ Selecciona usuario y un rol administrable. Fundador/Pendiente y roles por encima del bot están protegidos.")
