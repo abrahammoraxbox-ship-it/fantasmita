@@ -70,6 +70,13 @@ class Owner(commands.Cog):
             except (discord.Forbidden,discord.HTTPException) as e:print("PANIC:",ch.id,repr(e))
         await ctx.send(f"{'🚨 MODO PÁNICO ACTIVADO' if on else '✅ Modo pánico desactivado'} • {changed} canales procesados.")
     @commands.command()
+    async def repararservidor(self,ctx):
+        if not self.own(ctx):return await ctx.send("🔒 Solo el propietario.")
+        from core import ensure_structure
+        await ensure_structure(self.b,ctx.guild)
+        await ctx.send("✅ Fantasmita reparó canales, permisos, paneles y acceso del servidor.")
+
+    @commands.command()
     async def instalarbranding(self,ctx):
         if not self.own(ctx):return await ctx.send("🔒 Solo el propietario.")
         if discord.utils.get(ctx.guild.emojis,name="fantasmita"):return await ctx.send("👻 El emoji `fantasmita` ya existe.")

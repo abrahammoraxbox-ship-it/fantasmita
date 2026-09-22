@@ -4,6 +4,10 @@ class Security(commands.Cog):
     def __init__(self,b):self.b=b;self.msgs=collections.defaultdict(list);self.last={};self.joins=collections.defaultdict(list)
     @commands.Cog.listener()
     async def on_member_join(self,m):
+        pending=discord.utils.get(m.guild.roles,name="⏳ Pendiente")
+        if pending and not m.bot:
+            try:await m.add_roles(pending,reason="Eco: nuevo miembro pendiente de acceso")
+            except (discord.Forbidden,discord.HTTPException) as e:print("PENDING JOIN:",repr(e))
         now=time.time();arr=[x for x in self.joins[m.guild.id] if now-x<15]+[now];self.joins[m.guild.id]=arr
         if len(arr)>=8:
             self.b.db.execute("UPDATE guild_config SET security_level=3 WHERE guild_id=?",(m.guild.id,))

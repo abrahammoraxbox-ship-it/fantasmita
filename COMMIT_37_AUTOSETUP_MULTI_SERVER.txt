@@ -1,0 +1,10 @@
+Commit 37 - AutoSetup multi-servidor
+- Repara automáticamente Términos y Solicitar acceso.
+- ACCESO visible para todos; canales internos siguen protegidos.
+- Nuevos miembros reciben Pendiente automáticamente.
+- Aprobados conservan Gamer y pierden Pendiente.
+- Ordena solo la estructura administrada por Fantasmita.
+- No mueve canales personalizados ajenos por coincidir el nombre.
+- Panel Fundador solo visible para el propietario.
+- El rol Fundador no usa Administrator innecesariamente.
+- !repararservidor fuerza una resincronización completa.

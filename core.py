@@ -1,6 +1,6 @@
 import os, sqlite3, time, discord
-SCHEMA=10
-SETUP_VERSION=10
+SCHEMA=11
+SETUP_VERSION=11
 
 class Database:
     def __init__(self,path):
@@ -129,38 +129,52 @@ async def sync_role_order(guild,roles):
     try:await guild.edit_role_positions(positions=positions,reason="Jerarquía visual Eco")
     except (discord.Forbidden,discord.HTTPException) as e:print("ROLE ORDER:",repr(e))
 
-async def ensure_category(guild,name,overwrites=None):
+async def ensure_category(guild,name,overwrites=None,position=None):
     found=discord.utils.get(guild.categories,name=name)
-    if found:return found
-    kwargs={"reason":"Eco estable"}
-    if overwrites is not None:kwargs["overwrites"]=overwrites
-    return await guild.create_category(name,**kwargs)
+    if not found:
+        kwargs={"reason":"Eco estable"}
+        if overwrites is not None:kwargs["overwrites"]=overwrites
+        found=await guild.create_category(name,**kwargs)
+    elif overwrites is not None:
+        try:await found.edit(overwrites=overwrites,reason="Eco: sincronizar permisos de categoría")
+        except (discord.Forbidden,discord.HTTPException) as e:print("CATEGORY SYNC:",name,repr(e))
+    if position is not None:
+        try:await found.edit(position=position,reason="Eco: ordenar categorías")
+        except (discord.Forbidden,discord.HTTPException):pass
+    return found
 
-async def ensure_text(category,name,overwrites=None):
+async def ensure_text(category,name,overwrites=None,position=None,topic=None):
     found=discord.utils.get(category.text_channels,name=name)
-    if found:return found
-    found=discord.utils.get(category.guild.text_channels,name=name)
-    if found:
-        try:
-            if found.category_id!=category.id: await found.edit(category=category,reason="Eco: consolidar canal administrado")
-        except (discord.Forbidden,discord.HTTPException) as e: print("CHANNEL MOVE:",name,repr(e))
-        return found
-    kwargs={"reason":"Eco estable"}
-    if overwrites is not None:kwargs["overwrites"]=overwrites
-    return await category.create_text_channel(name,**kwargs)
+    if not found:
+        kwargs={"reason":"Eco estable"}
+        if overwrites is not None:kwargs["overwrites"]=overwrites
+        if topic is not None:kwargs["topic"]=topic
+        found=await category.create_text_channel(name,**kwargs)
+    else:
+        changes={}
+        if overwrites is not None:changes["overwrites"]=overwrites
+        if topic is not None:changes["topic"]=topic
+        if changes:
+            try:await found.edit(reason="Eco: sincronizar canal administrado",**changes)
+            except (discord.Forbidden,discord.HTTPException) as e:print("CHANNEL SYNC:",name,repr(e))
+    if position is not None:
+        try:await found.edit(position=position,reason="Eco: ordenar canal administrado")
+        except (discord.Forbidden,discord.HTTPException):pass
+    return found
 
-async def ensure_voice(category,name,overwrites=None):
+async def ensure_voice(category,name,overwrites=None,position=None):
     found=discord.utils.get(category.voice_channels,name=name)
-    if found:return found
-    found=discord.utils.get(category.guild.voice_channels,name=name)
-    if found:
-        try:
-            if found.category_id!=category.id: await found.edit(category=category,reason="Eco: consolidar canal administrado")
-        except (discord.Forbidden,discord.HTTPException) as e: print("VOICE MOVE:",name,repr(e))
-        return found
-    kwargs={"reason":"Eco estable"}
-    if overwrites is not None:kwargs["overwrites"]=overwrites
-    return await category.create_voice_channel(name,**kwargs)
+    if not found:
+        kwargs={"reason":"Eco estable"}
+        if overwrites is not None:kwargs["overwrites"]=overwrites
+        found=await category.create_voice_channel(name,**kwargs)
+    elif overwrites is not None:
+        try:await found.edit(overwrites=overwrites,reason="Eco: sincronizar voz administrada")
+        except (discord.Forbidden,discord.HTTPException) as e:print("VOICE SYNC:",name,repr(e))
+    if position is not None:
+        try:await found.edit(position=position,reason="Eco: ordenar voz administrada")
+        except (discord.Forbidden,discord.HTTPException):pass
+    return found
 
 async def ensure_panel(bot,channel,key,embed,view=None):
     marker=f"||ECO:{key}||"
@@ -214,8 +228,28 @@ async def repair_onboarding(bot,guild):
         description="Después de aceptar los términos, pulsa el botón para enviar tu solicitud al fundador.",
         colour=0x7C3AED),AccessRequestView(bot))
 
+async def sync_member_access(bot,guild,pending,gamer):
+    approved={r[0] for r in bot.db.execute(
+        "SELECT user_id FROM access_requests WHERE guild_id=? AND status='approved'",(guild.id,)
+    ).fetchall()}
+    for m in guild.members:
+        if m.bot or m.id==guild.owner_id or m.guild_permissions.administrator:
+            continue
+        has_access=(m.id in approved) or (gamer in m.roles)
+        try:
+            if has_access:
+                if gamer not in m.roles:
+                    await m.add_roles(gamer,reason="Eco: reparar acceso aprobado")
+                if pending in m.roles:
+                    await m.remove_roles(pending,reason="Eco: acceso ya aprobado")
+            else:
+                if pending not in m.roles:
+                    await m.add_roles(pending,reason="Eco: acceso pendiente")
+        except (discord.Forbidden,discord.HTTPException) as e:
+            print("MEMBER ACCESS SYNC:",m.id,repr(e))
+
 async def ensure_structure(bot,g):
-    founder=await ensure_role(g,"👑 Fundador",0xFFD166,discord.Permissions(administrator=True),hoist=True)
+    founder=await ensure_role(g,"👑 Fundador",0xFFD166,discord.Permissions.none(),hoist=True)
     admin_perms=discord.Permissions(
         manage_guild=True,manage_roles=True,manage_channels=True,manage_messages=True,
         kick_members=True,ban_members=True,moderate_members=True,move_members=True,
@@ -227,8 +261,8 @@ async def ensure_structure(bot,g):
     ),hoist=True)
     pending=await ensure_role(g,"⏳ Pendiente",0x64748B)
     gamer=await ensure_role(g,"🎮 Gamer",0x5865F2,hoist=True)
+
     decorative=[]
-    # Orden de identidad: el rol más alto define el color visible del nombre en Discord.
     for name,color in [
         ("📺 Creador",0xEC4899),("💎 VIP",0x22D3EE),("🏆 Élite",0xF59E0B),
         ("🏅 Campeón",0xFBBF24),("🌙 Veterano",0x4F46E5)
@@ -242,56 +276,56 @@ async def ensure_structure(bot,g):
 
     everyone=g.default_role
     gate={
-        everyone:discord.PermissionOverwrite(view_channel=True,send_messages=False),
-        pending:discord.PermissionOverwrite(view_channel=True,send_messages=False),
-        gamer:discord.PermissionOverwrite(view_channel=False),
-        founder:discord.PermissionOverwrite(view_channel=True,send_messages=True),
-        admin:discord.PermissionOverwrite(view_channel=True,send_messages=True),
-        guard:discord.PermissionOverwrite(view_channel=True,send_messages=True)
+        everyone:discord.PermissionOverwrite(view_channel=True,send_messages=False,read_message_history=True),
+        pending:discord.PermissionOverwrite(view_channel=True,send_messages=False,read_message_history=True),
+        gamer:discord.PermissionOverwrite(view_channel=True,send_messages=False,read_message_history=True),
+        founder:discord.PermissionOverwrite(view_channel=True,send_messages=True,read_message_history=True),
+        admin:discord.PermissionOverwrite(view_channel=True,send_messages=True,read_message_history=True),
+        guard:discord.PermissionOverwrite(view_channel=True,send_messages=True,read_message_history=True)
     }
     public={
         everyone:discord.PermissionOverwrite(view_channel=False),
         pending:discord.PermissionOverwrite(view_channel=False),
-        gamer:discord.PermissionOverwrite(view_channel=True)
+        gamer:discord.PermissionOverwrite(view_channel=True,send_messages=True,read_message_history=True)
     }
     staff={
         everyone:discord.PermissionOverwrite(view_channel=False),
-        founder:discord.PermissionOverwrite(view_channel=True),
-        admin:discord.PermissionOverwrite(view_channel=True),
-        guard:discord.PermissionOverwrite(view_channel=True)
+        founder:discord.PermissionOverwrite(view_channel=True,send_messages=True),
+        admin:discord.PermissionOverwrite(view_channel=True,send_messages=True),
+        guard:discord.PermissionOverwrite(view_channel=True,send_messages=True)
     }
     owner_only={
         everyone:discord.PermissionOverwrite(view_channel=False),
-        founder:discord.PermissionOverwrite(view_channel=True)
+        founder:discord.PermissionOverwrite(view_channel=True,send_messages=True)
     }
 
-    access_cat=await ensure_category(g,"🚪 ACCESO")
-    access=await ensure_text(access_cat,"bienvenida-y-acceso",gate)
+    access_cat=await ensure_category(g,"🚪 ACCESO",position=0)
+    access=await ensure_text(access_cat,"bienvenida-y-acceso",gate,position=0,topic="Lee los términos, acéptalos y solicita acceso.")
 
-    community=await ensure_category(g,"🌌 COMUNIDAD")
-    await ensure_text(community,"general",public)
-    await ensure_text(community,"gaming",public)
-    suggest=await ensure_text(community,"sugerencias",public)
-    await ensure_text(community,"eventos",public)
-    music_ch=await ensure_text(community,"musica",public)
+    community=await ensure_category(g,"🌌 COMUNIDAD",position=1)
+    await ensure_text(community,"general",public,position=0)
+    await ensure_text(community,"gaming",public,position=1)
+    suggest=await ensure_text(community,"sugerencias",public,position=2)
+    await ensure_text(community,"eventos",public,position=3)
+    music_ch=await ensure_text(community,"musica",public,position=4)
 
-    voice_cat=await ensure_category(g,"🎧 VOZ")
-    await ensure_voice(voice_cat,"🔊 General",public)
-    await ensure_voice(voice_cat,"🎮 Gaming",public)
-    lobby=await ensure_voice(voice_cat,"➕ Crear sala privada",public)
-    voice_panel=await ensure_text(voice_cat,"control-de-voz",public)
+    voice_cat=await ensure_category(g,"🎧 VOZ",position=2)
+    await ensure_voice(voice_cat,"🔊 General",public,position=0)
+    await ensure_voice(voice_cat,"🎮 Gaming",public,position=1)
+    lobby=await ensure_voice(voice_cat,"➕ Crear sala privada",public,position=2)
+    voice_panel=await ensure_text(voice_cat,"control-de-voz",public,position=3)
 
-    support=await ensure_category(g,"🆘 SOPORTE")
-    ticket=await ensure_text(support,"abrir-ticket",public)
-    help_ch=await ensure_text(support,"ayuda",public)
+    support=await ensure_category(g,"🆘 SOPORTE",position=3)
+    ticket=await ensure_text(support,"abrir-ticket",public,position=0)
+    help_ch=await ensure_text(support,"ayuda",public,position=1)
 
     staff_cat=await ensure_category(g,"🔒 STAFF",staff)
-    requests=await ensure_text(staff_cat,"solicitudes-acceso",staff)
-    logs=await ensure_text(staff_cat,"logs",staff)
+    requests=await ensure_text(staff_cat,"solicitudes-acceso",staff,position=0)
+    logs=await ensure_text(staff_cat,"logs",staff,position=1)
 
     founder_cat=await ensure_category(g,"👑 FUNDADOR",owner_only)
-    owner_ch=await ensure_text(founder_cat,"panel-fundador",owner_only)
-    audit=await ensure_text(founder_cat,"auditoria-fundador",owner_only)
+    owner_ch=await ensure_text(founder_cat,"panel-fundador",owner_only,position=0)
+    audit=await ensure_text(founder_cat,"auditoria-fundador",owner_only,position=1)
 
     bot.db.execute("INSERT OR IGNORE INTO guild_config(guild_id) VALUES(?)",(g.id,))
     bot.db.execute("""UPDATE guild_config SET setup_version=?,access_ch=?,requests_ch=?,ticket_ch=?,
@@ -311,13 +345,13 @@ async def ensure_structure(bot,g):
     from views import TermsView,AccessRequestView,TicketView,VoiceControlView,MusicControlView
     await ensure_panel(bot,access,"TERMS",discord.Embed(
         title="📜 TÉRMINOS Y CONDICIONES",
-        description=rules+"\n\nAl pulsar **Aceptar términos y continuar**, confirmas que aceptas estas reglas. Después podrás solicitar acceso.",
+        description=rules+"\n\nPulsa **Aceptar términos y continuar**. Después solicita acceso.",
         colour=0x8B5CF6),TermsView(bot))
     await ensure_panel(bot,access,"ACCESS",discord.Embed(
         title="👻 SOLICITAR ACCESO",
-        description="Después de aceptar los términos, pulsa el botón para enviar tu solicitud al fundador.",
+        description="Acepta los términos y después pulsa el botón para solicitar acceso al servidor.",
         colour=0x7C3AED),AccessRequestView(bot))
-    # Panel musical fijo con controles persistentes.
+
     await ensure_panel(bot,music_ch,"MUSIC",discord.Embed(
         title="🎵 FANTASMITA • CENTRO MUSICAL",
         description=(
@@ -329,36 +363,33 @@ async def ensure_structure(bot,g):
     await ensure_panel(bot,help_ch,"ROLES",discord.Embed(
         title="🎭 ROLES • GUÍA RÁPIDA",
         description=(
-            "👑 **Fundador** — propietario.\n🛡️ **Administrador** — administración.\n"
-            "⚔️ **Guardián** — moderación/seguridad.\n📺 **Creador** — reconocimiento manual para creadores.\n"
-            "💎 **VIP** — reconocimiento manual del fundador.\n🏆 **Élite** — automático al alcanzar 100 mensajes válidos.\n"
-            "🏅 **Campeón** — reconocimiento competitivo/manual.\n🌙 **Veterano** — automático al alcanzar 500 mensajes válidos.\n"
-            "🎮 **Gamer** — miembro con acceso aprobado.\n⏳ **Pendiente** — acceso aún no aprobado.\n\n"
-            "Los roles decorativos no reciben permisos administrativos.\n\n"
-            "🎭 Los roles personalizados creados por el fundador también pueden gestionarse desde `!panel` si están debajo de Fantasmita.\n\n"
-            "🎨 Discord muestra el **color del rol más alto** en el nombre del miembro. "            "El emoji del rol identifica su insignia dentro del perfil/lista de roles."
+            "👑 **Fundador** — propietario del servidor.\n"
+            "🛡️ **Administrador** — administración.\n"
+            "⚔️ **Guardián** — moderación/seguridad.\n"
+            "🎮 **Gamer** — miembro con acceso aprobado.\n"
+            "⏳ **Pendiente** — aún no tiene acceso.\n\n"
+            "Fantasmita no modifica tus roles personalizados."
         ),colour=0x8B5CF6))
     await ensure_panel(bot,help_ch,"HELP",discord.Embed(
         title="🧠 CENTRO DE COMANDOS",
         description=(
             "**Perfil:** `/perfil` `/top` `/reputacion` `/logros` `/temporada`\n"
             "**Economía:** `/daily` `/saldo` `/coinflip` `/tienda` `/comprar` `/inventario`\n"
-            "**Misiones:** `/mision` `/semanal`\n"
-            "**Comunidad:** `/dado` `/8ball` `/sugerir` `/lfg` `/lfg_lista`\n"
-            "**Clanes:** `/clan_crear` `/clan_unir` `/clan_salir` `/clan_info`\n"
-            "**Eventos/Torneos:** `/evento_crear` `/eventos_lista` `/torneo_crear` `/torneos` `/torneo_resultado`\n"
-            "**Música:** usa `#musica` → `/play` `/pause` `/resume` `/skip` `/queue` `/volume` `/nowplaying` `/stop`\n"
-            "**Perfiles sociales:** `/vincular` `/vinculos` (enlaces públicos; no OAuth)\n"
+            "**Música:** `/play` `/pause` `/resume` `/skip` `/queue` `/volume` `/nowplaying` `/stop`\n"
             "🎫 `#abrir-ticket` • 🎧 `➕ Crear sala privada`\n"
-            "**Fundador:** `!panel` `!reglas` `!seguridad` `!backup` `!panico` `!instalarbranding` `!recortarcanales`"
+            "**Fundador:** `!panel` `!reglas` `!seguridad` `!backup` `!panico` `!repararservidor`"
         ),colour=0x22D3EE))
     await ensure_panel(bot,ticket,"TICKET",discord.Embed(
         title="🎫 SOPORTE",description="Un ticket activo por persona.",colour=0x22D3EE),TicketView(bot))
     await ensure_panel(bot,voice_panel,"VOICE",discord.Embed(
         title="🎧 TU SALA",
-        description="Entra a ➕ Crear sala privada. Tu sala se crea automáticamente. **Los controles están aquí**, en #control-de-voz: bloquear, desbloquear, renombrar, permitir/expulsar usuarios, transferir propiedad y límite 1–10.",
+        description="Entra a ➕ Crear sala privada. Fantasmita creará tu sala y podrás controlarla desde aquí.",
         colour=0x8B5CF6),VoiceControlView(bot))
     await ensure_panel(bot,owner_ch,"OWNER",discord.Embed(
         title="👑 CENTRO DE CONTROL",
-        description="`!panel` `!reglas` `!seguridad` `!backup`\nLas acciones sensibles quedan reservadas al propietario.",
+        description="Este espacio solo es visible para el propietario.\n\n`!panel` • `!reglas` • `!seguridad` • `!backup` • `!panico` • `!repararservidor`",
         colour=0xFFD166))
+
+    await sync_member_access(bot,g,pending,gamer)
+    print(f"✅ AUTOSETUP V{SETUP_VERSION}: {g.name} organizado y permisos sincronizados")
+
