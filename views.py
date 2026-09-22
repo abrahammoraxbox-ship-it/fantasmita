@@ -240,20 +240,32 @@ class VoiceControlView(discord.ui.View):
 
 
 class OwnerPanel(discord.ui.View):
-    def __init__(self,owner=None):
-        # Vista persistente: sobrevive reinicios cuando se registra en main.py.
+    def __init__(self,owner):
+        # El panel se crea con !panel y permanece activo mientras el bot siga encendido.
+        # No se registra como vista persistente global: conserva el diseño original.
         super().__init__(timeout=None)
-        self.owner=int(owner) if owner is not None else None
+        self.owner=int(owner)
+
+    async def on_error(self, interaction, error, item):
+        # Si Discord.py rechaza una interacción, deja el error visible en Wispbyte.
+        print(f"OWNER PANEL ERROR | item={type(item).__name__} | error={error!r}")
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.send_message(
+                    "❌ Ocurrió un error en el panel. Revisa la consola de Fantasmita.",
+                    ephemeral=True
+                )
+            except discord.HTTPException:
+                pass
 
     async def interaction_check(self,i):
-        owner_id=self.owner or i.guild.owner_id
-        if i.user.id!=owner_id:
+        if i.user.id!=self.owner:
             await i.response.send_message("🔒 Solo el propietario.",ephemeral=True,delete_after=4)
             return False
         return True
 
     def key(self,i):
-        return (i.guild.id,self.owner or i.guild.owner_id)
+        return (i.guild.id,self.owner)
 
     def state(self,i):
         return OWNER_PANEL_STATE.setdefault(self.key(i),{"member_id":None,"role_id":None})
@@ -288,10 +300,10 @@ class OwnerPanel(discord.ui.View):
         return discord.Embed(title="👑 PANEL DE ROLES",description=text,colour=0x8B5CF6)
 
     async def refresh(self,i,status=None,autoclear=False):
-        # Reconoce la interacción inmediatamente y luego edita el mismo panel.
-        if not i.response.is_done():
-            await i.response.defer()
-        await i.edit_original_response(embed=self.make_embed(i,status),view=self)
+        try:
+            await i.response.edit_message(embed=self.make_embed(i,status),view=self)
+        except discord.InteractionResponded:
+            await i.edit_original_response(embed=self.make_embed(i,status),view=self)
         if autoclear and status:
             msg=i.message
             async def clear_status():
@@ -300,17 +312,17 @@ class OwnerPanel(discord.ui.View):
                 except (discord.NotFound,discord.Forbidden,discord.HTTPException):pass
             asyncio.create_task(clear_status())
 
-    @discord.ui.select(cls=discord.ui.UserSelect,placeholder="Seleccionar usuario",row=0,custom_id="eco:owner:user")
+    @discord.ui.select(cls=discord.ui.UserSelect,placeholder="Seleccionar usuario",row=0)
     async def us(self,i,s):
         self.state(i)["member_id"]=s.values[0].id
         await self.refresh(i)
 
-    @discord.ui.select(cls=discord.ui.RoleSelect,placeholder="Seleccionar rol",row=1,custom_id="eco:owner:role")
+    @discord.ui.select(cls=discord.ui.RoleSelect,placeholder="Seleccionar rol",row=1)
     async def ro(self,i,s):
         self.state(i)["role_id"]=s.values[0].id
         await self.refresh(i)
 
-    @discord.ui.button(label="DAR",style=discord.ButtonStyle.success,row=2,custom_id="eco:owner:add")
+    @discord.ui.button(label="DAR",style=discord.ButtonStyle.success,row=2)
     async def add(self,i,b):
         member,role=self.resolve(i)
         if not member or not self.role_allowed(i,role):
@@ -332,7 +344,7 @@ class OwnerPanel(discord.ui.View):
         except discord.HTTPException as e:
             print("OWNER ROLE ADD:",repr(e));await self.refresh(i,"❌ Discord no permitió asignar el rol.")
 
-    @discord.ui.button(label="QUITAR",style=discord.ButtonStyle.danger,row=2,custom_id="eco:owner:remove")
+    @discord.ui.button(label="QUITAR",style=discord.ButtonStyle.danger,row=2)
     async def rem(self,i,b):
         member,role=self.resolve(i)
         if not member or not self.role_allowed(i,role):

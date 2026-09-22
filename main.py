@@ -5,7 +5,7 @@ run_selftest()
 import discord
 from discord.ext import commands
 from core import Database, ensure_structure
-from views import TermsView, AccessRequestView, TicketView, TicketCloseView, VoiceControlView, DecisionView, OwnerPanel
+from views import TermsView, AccessRequestView, TicketView, TicketCloseView, VoiceControlView, DecisionView
 
 # Limpieza anti-spam: toda respuesta normal enviada con ctx.send desaparece en 2 minutos.
 # Los paneles persistentes usan channel.send/ensure_panel y NO pasan por esta regla.
@@ -59,8 +59,6 @@ class EcoBot(commands.Bot):
         self.add_view(TicketView(self))
         self.add_view(TicketCloseView(self))
         self.add_view(VoiceControlView(self))
-        # Panel del fundador: registrar callbacks persistentes tras reinicios.
-        self.add_view(OwnerPanel())
         for gid,uid,msgid in self.db.execute(
             "SELECT guild_id,user_id,message_id FROM access_requests WHERE status='pending' AND message_id>0"
         ).fetchall():
