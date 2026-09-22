@@ -241,20 +241,19 @@ class VoiceControlView(discord.ui.View):
 
 class OwnerPanel(discord.ui.View):
     def __init__(self,owner=None):
-        # Vista persistente: sigue funcionando después de reiniciar Fantasmita.
+        # Vista persistente: sobrevive reinicios cuando se registra en main.py.
         super().__init__(timeout=None)
         self.owner=int(owner) if owner is not None else None
 
     async def interaction_check(self,i):
-        # La autoridad real siempre es el propietario actual del servidor.
-        owner_id=i.guild.owner_id if i.guild else self.owner
+        owner_id=self.owner or i.guild.owner_id
         if i.user.id!=owner_id:
             await i.response.send_message("🔒 Solo el propietario.",ephemeral=True,delete_after=4)
             return False
         return True
 
     def key(self,i):
-        return (i.guild.id,i.guild.owner_id)
+        return (i.guild.id,self.owner or i.guild.owner_id)
 
     def state(self,i):
         return OWNER_PANEL_STATE.setdefault(self.key(i),{"member_id":None,"role_id":None})
@@ -289,7 +288,7 @@ class OwnerPanel(discord.ui.View):
         return discord.Embed(title="👑 PANEL DE ROLES",description=text,colour=0x8B5CF6)
 
     async def refresh(self,i,status=None,autoclear=False):
-        # Confirmar primero la interacción evita el aviso de timeout de Discord.
+        # Reconoce la interacción inmediatamente y luego edita el mismo panel.
         if not i.response.is_done():
             await i.response.defer()
         await i.edit_original_response(embed=self.make_embed(i,status),view=self)
@@ -301,7 +300,7 @@ class OwnerPanel(discord.ui.View):
                 except (discord.NotFound,discord.Forbidden,discord.HTTPException):pass
             asyncio.create_task(clear_status())
 
-    @discord.ui.select(cls=discord.ui.UserSelect,placeholder="Seleccionar usuario",row=0,custom_id="eco:owner:member")
+    @discord.ui.select(cls=discord.ui.UserSelect,placeholder="Seleccionar usuario",row=0,custom_id="eco:owner:user")
     async def us(self,i,s):
         self.state(i)["member_id"]=s.values[0].id
         await self.refresh(i)

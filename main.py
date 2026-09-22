@@ -59,7 +59,7 @@ class EcoBot(commands.Bot):
         self.add_view(TicketView(self))
         self.add_view(TicketCloseView(self))
         self.add_view(VoiceControlView(self))
-        # Panel del fundador persistente: registra sus componentes al arrancar.
+        # Panel del fundador: registrar callbacks persistentes tras reinicios.
         self.add_view(OwnerPanel())
         for gid,uid,msgid in self.db.execute(
             "SELECT guild_id,user_id,message_id FROM access_requests WHERE status='pending' AND message_id>0"
