@@ -1,0 +1,7 @@
+FIX MÚSICA - reproducción y panel
+
+- /play ya no borra la confirmación de la canción encontrada.
+- El panel MUSIC fijo sigue actualizándose con la pista actual.
+- Se registra el estado real de Discord Voice tras vc.play().
+- El callback after ahora informa fin normal o error y limpia la pista actual.
+- No se modificaron roles, economía, XP, tickets, seguridad ni Deno.

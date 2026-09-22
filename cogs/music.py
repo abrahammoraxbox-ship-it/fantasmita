@@ -261,12 +261,29 @@ class Music(commands.Cog):
             self.current.pop(guild.id,None);return await self.start_next(guild)
         loop=asyncio.get_running_loop()
         def after(err):
-            if err:print("MUSIC PLAYER:",repr(err))
-            fut=asyncio.run_coroutine_threadsafe(self.start_next(guild),loop)
-            fut.add_done_callback(lambda f: print("MUSIC NEXT:",repr(f.exception())) if f.exception() else None)
+            title=item.get("title","Audio")
+            if err:
+                print(f"MUSIC AFTER ERROR: {title} | {err!r}")
+            else:
+                print(f"MUSIC AFTER END: {title} | source exhausted without exception")
+            fut=asyncio.run_coroutine_threadsafe(self._after_track(guild,item,err),loop)
+            def done(f):
+                try:
+                    exc=f.exception()
+                    if exc:print("MUSIC AFTER TASK ERROR:",repr(exc))
+                except Exception as e:
+                    print("MUSIC AFTER TASK CHECK:",repr(e))
+            fut.add_done_callback(done)
         try:
             vc.play(src,after=after)
             print(f"MUSIC PLAYING: {item.get('title','Audio')} | voice={vc.channel}")
+            await asyncio.sleep(0.35)
+            print(
+                f"MUSIC VOICE STATE | connected={vc.is_connected()} | "
+                f"playing={vc.is_playing()} | paused={vc.is_paused()}"
+            )
+            if not vc.is_playing() and not vc.is_paused():
+                print("MUSIC WARNING: audio source stopped immediately after vc.play()")
         except Exception as e:
             print("MUSIC PLAY START:",repr(e))
             try:src.cleanup()
@@ -277,6 +294,21 @@ class Music(commands.Cog):
                 except discord.HTTPException:pass
             self.current.pop(guild.id,None)
             return await self.start_next(guild)
+
+    async def _after_track(self,guild,item,err):
+        vc=guild.voice_client
+        title=item.get("title","Audio")
+        print(
+            f"MUSIC FINISHED | title={title} | error={err!r} | "
+            f"connected={bool(vc and vc.is_connected())} | "
+            f"playing={bool(vc and vc.is_playing())}"
+        )
+        current=self.current.get(guild.id)
+        if current is item:
+            self.current.pop(guild.id,None)
+        await self.update_player(guild)
+        if self.queues[guild.id]:
+            await self.start_next(guild)
 
     async def change_volume(self,guild,delta):
         v=max(0.1,min(1.0,self.volumes[guild.id]+delta/100));self.volumes[guild.id]=v
@@ -323,11 +355,15 @@ class Music(commands.Cog):
         if not vc.is_playing() and not vc.is_paused():await self.start_next(ctx.guild)
         else:await self.update_player(ctx.guild)
 
-        # Borra el acuse temporal del slash command. El panel MUSIC fijo es el único
-        # elemento musical que debe permanecer en el canal.
+        # Mantiene visible la confirmación de /play para que el usuario vea qué pista
+        # se encontró. El panel MUSIC fijo sigue siendo el reproductor principal.
         if interaction:
-            try:await interaction.delete_original_response()
-            except (discord.NotFound,discord.HTTPException):pass
+            try:
+                await interaction.edit_original_response(
+                    content=f"🎵 Reproduciendo: **{item.get('title','Audio')}**"
+                )
+            except (discord.NotFound,discord.HTTPException) as e:
+                print("MUSIC PLAY RESPONSE:",repr(e))
 
     @commands.hybrid_command(description="Prueba Discord Voice sin YouTube ni FFmpeg")
     async def pruebavoz(self,ctx):
