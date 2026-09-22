@@ -279,7 +279,7 @@ class OwnerPanel(discord.ui.View):
     def role_allowed(self,i,role):
         """El fundador puede gestionar roles propios y personalizados seguros bajo Fantasmita."""
         if not role or role==i.guild.default_role:return False
-        if role.name in PROTECTED_OWNER_ROLES:return False
+        if role.name in {"👑 Fundador","⏳ Pendiente"}:return False
         if role.managed:return False
         me=i.guild.me
         if not me or role>=me.top_role:return False
